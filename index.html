@@ -698,9 +698,25 @@
       const updateQty = (productId, delta) => {
         setCart(cart.map(item => {
           if (item.product.id === productId) {
-            const newQty = item.qty + delta;
-            if (newQty > item.product.stock) { showToast('Melebihi sisa stok!', 'error'); return item; }
+            const currentQty = Number(item.qty) || 0;
+            const newQty = currentQty + delta;
+            if (newQty > item.product.stock) { showToast(`Maksimal stok tercapai untuk ${item.product.name}!`, 'error'); return { ...item, qty: item.product.stock }; }
             return newQty > 0 ? { ...item, qty: newQty } : item;
+          }
+          return item;
+        }));
+      };
+
+      const setExactQty = (productId, newQtyRaw) => {
+        setCart(cart.map(item => {
+          if (item.product.id === productId) {
+            if (newQtyRaw === '') return { ...item, qty: '' };
+            let newQty = Number(newQtyRaw);
+            if (newQty > item.product.stock) {
+              showToast(`Maksimal stok tercapai untuk ${item.product.name}!`, 'error');
+              newQty = item.product.stock;
+            }
+            return { ...item, qty: newQty };
           }
           return item;
         }));
@@ -710,8 +726,8 @@
         setCart(cart.map(item => item.product.id === productId ? { ...item, discountRp: amount === '' ? '' : Number(amount) } : item)); 
       };
 
-      const totalItemCount = cart.reduce((sum, item) => sum + item.qty, 0);
-      const subtotal = cart.reduce((sum, item) => sum + ((item.product.price - (Number(item.discountRp) || 0)) * item.qty), 0);
+      const totalItemCount = cart.reduce((sum, item) => sum + (Number(item.qty) || 0), 0);
+      const subtotal = cart.reduce((sum, item) => sum + ((item.product.price - (Number(item.discountRp) || 0)) * (Number(item.qty) || 0)), 0);
       const discountAmount = (subtotal * discount) / 100;
       const taxAmount = ((subtotal - discountAmount) * (Number(storeSettings.taxPercent) || 0)) / 100;
       const grandTotal = subtotal - discountAmount + taxAmount;
@@ -749,8 +765,9 @@
                 barcodeBufferRef.current = '';
                 e.preventDefault();
               } else if (rawCode === barcodeBufferRef.current.trim()) {
-                showToast(`Barcode "${cleanCode}" tidak ditemukan!`, 'error');
+                showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
                 barcodeBufferRef.current = '';
+                setSearchQuery('');
               }
             }
           } else if (e.key && e.key.length === 1) {
@@ -794,7 +811,7 @@
           if (existing && !editingProduct) {
             setEditingProduct(existing);
             setProductForm(existing);
-            showToast(`Produk "${existing.name}" ditemukan! Memuat data...`);
+            showToast(`⚠️ Barang sudah ada! (Memuat data ${existing.name})`, 'error');
           } else {
             setProductForm(prev => ({ ...prev, sku: cleanCode }));
             showToast(`SKU Barcode ${cleanCode} berhasil dimasukkan!`);
@@ -814,7 +831,7 @@
             showToast(`✅ +1 Stok "${updatedProducts[matchedIndex].name}" (Total: ${newStock})`);
             if (!scannerModal.continuousMode) closeScannerModal();
           } else {
-            showToast(`Barcode "${cleanCode}" belum ada. Membuka form baru...`, 'error');
+            showToast(`⚠️ Barang belum terdaftar! Membuka form...`, 'error');
             setEditingProduct(null);
             setProductForm({ sku: cleanCode, name: '', costPrice: '', price: '', packPrice: '', stock: 1, category: 'Umum', supplier: '' });
             setIsProductModalOpen(true);
@@ -827,7 +844,7 @@
             if (added) showToast(`+1 ${matchedProduct.name} (${cleanCode})!`);
             if (!scannerModal.continuousMode) closeScannerModal();
           } else {
-            showToast(`Barcode "${cleanCode}" belum terdaftar!`, 'error');
+            showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
           }
         }
       }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal]);
@@ -921,8 +938,9 @@
         let finalCash = cashReceived ? parseInt(cashReceived) : 0;
         if (paymentMethod === 'Cash' && finalCash < grandTotal) { showToast('Uang tunai kurang!', 'error'); return; }
         if (paymentMethod !== 'Cash' && paymentMethod !== 'Hutang') finalCash = grandTotal;
+        
+        const changeAmount = paymentMethod === 'Cash' ? Math.max(0, finalCash - grandTotal) : 0;
 
-        const changeAmount = finalCash > grandTotal ? finalCash - grandTotal : 0;
         const selectedCust = customers.find(c => c.id === selectedCustomerPOS);
 
         const newTransaction = {
@@ -973,7 +991,7 @@
           setProducts(updatedProducts);
           showToast('Produk diperbarui');
         } else {
-          if (products.some(p => p.sku === finalSku)) { showToast('Gagal: Barcode/SKU sudah ada!', 'error'); setIsSaving(false); return; }
+          if (products.some(p => p.sku === finalSku)) { showToast('⚠️ Barang sudah ada!', 'error'); setIsSaving(false); return; }
           const newProduct = { ...formattedData, id: generateId() };
           updatedProducts = [...products, newProduct];
           setProducts(updatedProducts);
@@ -1710,7 +1728,7 @@
                           {item.discountRp > 0 && <span className="text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded font-bold">- {formatMoney(item.discountRp)}</span>}
                         </div>
                       </div>
-                      <button onClick={() => removeFromCart(item.product.id)} className="p-1 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer">
+                      <button onClick={() => removeFromCart(item.product.id)} className={`p-1.5 rounded-lg cursor-pointer transition-colors ${theme === 'dark' ? 'text-slate-400 hover:text-rose-400 bg-[#0f1228] hover:bg-rose-500/10' : 'text-slate-400 hover:text-rose-500 bg-slate-50 hover:bg-rose-50'}`}>
                         <Icon name="trash-2" className="w-4 h-4" />
                       </button>
                     </div>
@@ -1722,14 +1740,20 @@
                           placeholder="Rp" 
                           value={item.discountRp} 
                           onChange={(e) => updateItemDiscount(item.product.id, e.target.value)} 
-                          className={`w-16 rounded-lg px-2 py-0.5 text-xs font-medium outline-none border ${
+                          className={`w-16 rounded-lg px-2 py-0.5 text-xs font-medium outline-none border [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                             theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50 border-slate-200'
                           }`} 
                         />
                       </div>
                       <div className={`flex items-center rounded-xl border p-0.5 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-100 border-slate-200'}`}>
                         <button onClick={() => updateQty(item.product.id, -1)} className="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-lg font-bold text-sm cursor-pointer">-</button>
-                        <span className="w-7 text-center font-bold text-xs">{item.qty}</span>
+                        <input 
+                          type="number"
+                          value={item.qty}
+                          onChange={(e) => setExactQty(item.product.id, e.target.value)}
+                          onBlur={() => { if (!item.qty || Number(item.qty) <= 0) setExactQty(item.product.id, 1); }}
+                          className={`w-9 text-center font-bold text-xs bg-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+                        />
                         <button onClick={() => updateQty(item.product.id, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-lg font-bold text-sm cursor-pointer">+</button>
                       </div>
                     </div>
