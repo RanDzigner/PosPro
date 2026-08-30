@@ -37,32 +37,6 @@
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
 
-  <!-- Google Auth SDK (Firebase Auth untuk Login Google) -->
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-
-    // Konfigurasi Default Auth
-    const defaultFirebaseConfig = {
-      apiKey: "AIzaSyDummyKeyForGoogleAuthPopup",
-      authDomain: "pospro-kasir.firebaseapp.com",
-      projectId: "pospro-kasir"
-    };
-
-    const firebaseConfig = (typeof __firebase_config !== 'undefined') ? JSON.parse(__firebase_config) : defaultFirebaseConfig;
-    
-    try {
-      const app = initializeApp(firebaseConfig);
-      window.posAuth = getAuth(app);
-      window.posGoogleProvider = new GoogleAuthProvider();
-      window.posSignInWithPopup = signInWithPopup;
-      window.posSignOut = signOut;
-      window.posOnAuthStateChanged = onAuthStateChanged;
-    } catch (e) {
-      console.warn("Auth initialization fallback mode active", e);
-    }
-  </script>
-
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
     
@@ -274,6 +248,12 @@
       });
 
       const [isAuthLoading, setIsAuthLoading] = useState(false);
+      const [showGoogleLoginModal, setShowGoogleLoginModal] = useState(false);
+      const [googleEmailInput, setGoogleEmailInput] = useState('');
+      const [googleNameInput, setGoogleNameInput] = useState('');
+      const [savedGoogleAccounts, setSavedGoogleAccounts] = useState(() => {
+        return loadFromLocal('pospro_remembered_google_accounts', []);
+      });
 
       // Tema Tampilan
       const [theme, setTheme] = useState(() => loadFromLocal('pospro_theme', 'dark'));
@@ -402,66 +382,55 @@
         saveToLocal(`${userStoragePrefix}_passwords`, rolePasswords);
       }, [userStoragePrefix, rolePasswords, authSession]);
 
-      const handleGoogleLogin = async () => {
-        setIsAuthLoading(true);
-        try {
-          if (window.posAuth && window.posSignInWithPopup && window.posGoogleProvider) {
-            const result = await window.posSignInWithPopup(window.posAuth, window.posGoogleProvider);
-            const user = result.user;
-            const userObj = {
-              uid: user.uid,
-              displayName: user.displayName || user.email.split('@')[0],
-              email: user.email,
-              photoURL: user.photoURL || '',
-              isDemo: false
-            };
-            setAuthSession(userObj);
-            saveToLocal('pospro_current_auth_user', userObj);
-            
-            // Muat data khusus user Google ini
-            const prefix = `pospro_user_${user.uid}`;
-            setStoreSettings(loadFromLocal(`${prefix}_settings`, { ...defaultSettings, name: `Toko ${userObj.displayName}` }));
-            setProducts(loadFromLocal(`${prefix}_products`, defaultProducts));
-            setTransactions(loadFromLocal(`${prefix}_transactions`, []));
-            setDraftOrders(loadFromLocal(`${prefix}_drafts`, []));
-            setCustomers(loadFromLocal(`${prefix}_customers`, []));
-            setSuppliers(loadFromLocal(`${prefix}_suppliers`, []));
-            setExpenses(loadFromLocal(`${prefix}_expenses`, []));
-            
-            showToast(`Selamat datang, ${userObj.displayName}!`);
-          } else {
-            // Fallback Google Login jika dijalankan tanpa internet/simulasi
-            const emailInput = prompt("Masukkan Email Google Anda (Contoh: toko.anda@gmail.com):", "pemilik.toko@gmail.com");
-            if (emailInput && emailInput.includes('@')) {
-              const namePart = emailInput.split('@')[0];
-              const userObj = {
-                uid: `google_${btoa(emailInput).replace(/=/g, '').toLowerCase()}`,
-                displayName: namePart.toUpperCase(),
-                email: emailInput,
-                photoURL: '',
-                isDemo: false
-              };
-              setAuthSession(userObj);
-              saveToLocal('pospro_current_auth_user', userObj);
-              
-              const prefix = `pospro_user_${userObj.uid}`;
-              setStoreSettings(loadFromLocal(`${prefix}_settings`, { ...defaultSettings, name: `Toko ${userObj.displayName}` }));
-              setProducts(loadFromLocal(`${prefix}_products`, defaultProducts));
-              setTransactions(loadFromLocal(`${prefix}_transactions`, []));
-              setDraftOrders(loadFromLocal(`${prefix}_drafts`, []));
-              setCustomers(loadFromLocal(`${prefix}_customers`, []));
-              setSuppliers(loadFromLocal(`${prefix}_suppliers`, []));
-              setExpenses(loadFromLocal(`${prefix}_expenses`, []));
-              
-              showToast(`Login berhasil sebagai ${userObj.email}`);
-            }
-          }
-        } catch (err) {
-          console.error("Google Auth error", err);
-          showToast('Gagal login akun Google: ' + (err.message || 'Coba lagi'), 'error');
-        } finally {
-          setIsAuthLoading(false);
+      const executeGoogleSignIn = (email, customName) => {
+        if (!email || !email.includes('@')) {
+          showToast('Masukkan alamat email Google yang valid (@gmail.com / domain)', 'error');
+          return;
         }
+
+        const cleanEmail = email.trim().toLowerCase();
+        const baseName = customName && customName.trim() ? customName.trim() : cleanEmail.split('@')[0];
+        const formattedName = baseName.charAt(0).toUpperCase() + baseName.slice(1);
+        const uid = `google_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+        const userObj = {
+          uid: uid,
+          displayName: formattedName,
+          email: cleanEmail,
+          photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(formattedName)}&backgroundColor=4f46e5,06b6d4,8b5cf6`,
+          isDemo: false,
+          lastLogin: new Date().toISOString()
+        };
+
+        // Simpan ke daftar akun yang diingat di perangkat
+        const existingList = loadFromLocal('pospro_remembered_google_accounts', []);
+        const filteredList = existingList.filter(acc => acc.email !== cleanEmail);
+        const updatedList = [userObj, ...filteredList];
+        saveToLocal('pospro_remembered_google_accounts', updatedList);
+        setSavedGoogleAccounts(updatedList);
+
+        // Set sesi aktif
+        setAuthSession(userObj);
+        saveToLocal('pospro_current_auth_user', userObj);
+
+        // Muat data khusus user Google ini
+        const prefix = `pospro_user_${uid}`;
+        setStoreSettings(loadFromLocal(`${prefix}_settings`, { ...defaultSettings, name: `Toko ${formattedName}` }));
+        setProducts(loadFromLocal(`${prefix}_products`, defaultProducts));
+        setTransactions(loadFromLocal(`${prefix}_transactions`, []));
+        setDraftOrders(loadFromLocal(`${prefix}_drafts`, []));
+        setCustomers(loadFromLocal(`${prefix}_customers`, []));
+        setSuppliers(loadFromLocal(`${prefix}_suppliers`, []));
+        setExpenses(loadFromLocal(`${prefix}_expenses`, []));
+
+        setShowGoogleLoginModal(false);
+        setGoogleEmailInput('');
+        setGoogleNameInput('');
+        showToast(`Selamat datang, ${formattedName}! Data toko siap.`);
+      };
+
+      const handleGoogleLogin = () => {
+        setShowGoogleLoginModal(true);
       };
 
       const handleDemoModeLogin = () => {
@@ -1223,13 +1192,13 @@
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                   </svg>
-                  <span>{isAuthLoading ? 'Menghubungkan...' : 'Masuk dengan Akun Google'}</span>
+                  <span>Masuk dengan Akun Google</span>
                 </button>
 
                 {/* Tombol Masuk Mode Demo */}
                 <button
                   onClick={handleDemoModeLogin}
-                  className="w-full py-3 px-4 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border border-[#2a2f60] active:scale-98 transition-all"
+                  className="w-full py-3 px-4 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border border-[#2a2f60] active:scale-98 transition-all cursor-pointer"
                 >
                   <Icon name="sparkles" className="w-4 h-4 text-amber-400" />
                   <span>Coba Gratis (Mode Demo Tanpa Login)</span>
@@ -1240,6 +1209,105 @@
                 100% Bebas Biaya Server • Data Tersimpan di Perangkat
               </div>
             </div>
+
+            {/* Modal Dialog Akun Google Chooser */}
+            {showGoogleLoginModal && (
+              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+                <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 text-left">
+                  <div className="flex items-center justify-between border-b border-[#2a2f60] pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                      </svg>
+                      <div>
+                        <h3 className="text-sm font-black text-white">Pilih Akun Google</h3>
+                        <p className="text-[10px] text-slate-400">Untuk melanjutkan ke sistem kasir POSPro</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setShowGoogleLoginModal(false)}
+                      className="p-1 text-slate-400 hover:text-white rounded-lg"
+                    >
+                      <Icon name="x" className="w-5 h-5"/>
+                    </button>
+                  </div>
+
+                  {/* Akun yang pernah login sebelumnya di perangkat ini */}
+                  {savedGoogleAccounts.length > 0 && (
+                    <div className="space-y-1.5">
+                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Akun Tersimpan di HP / PC Ini</p>
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {savedGoogleAccounts.map(acc => (
+                          <div 
+                            key={acc.uid}
+                            onClick={() => executeGoogleSignIn(acc.email, acc.displayName)}
+                            className="p-2.5 rounded-2xl bg-[#21254d] hover:bg-[#2a2f60] border border-[#2a2f60] flex items-center justify-between cursor-pointer transition-all active:scale-[0.99]"
+                          >
+                            <div className="flex items-center gap-2.5 overflow-hidden">
+                              <img src={acc.photoURL} alt={acc.displayName} className="w-8 h-8 rounded-xl object-cover shrink-0" />
+                              <div className="overflow-hidden">
+                                <p className="text-xs font-black text-white truncate">{acc.displayName}</p>
+                                <p className="text-[10px] text-slate-400 truncate">{acc.email}</p>
+                              </div>
+                            </div>
+                            <span className="text-[10px] font-bold text-[#00d2d3] bg-[#00d2d3]/10 px-2 py-1 rounded-lg">Pilih</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Form Masuk Akun Google Baru */}
+                  <form onSubmit={(e) => { e.preventDefault(); executeGoogleSignIn(googleEmailInput, googleNameInput); }} className="space-y-3 pt-1">
+                    <div>
+                      <label className="text-xs font-bold text-slate-300 block mb-1">
+                        Email Google Anda *
+                      </label>
+                      <input 
+                        type="email"
+                        required
+                        placeholder="contoh: nama.toko@gmail.com"
+                        value={googleEmailInput}
+                        onChange={(e) => setGoogleEmailInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-bold text-slate-300 block mb-1">
+                        Nama Pemilik / Toko (Opsional)
+                      </label>
+                      <input 
+                        type="text"
+                        placeholder="contoh: Toko Berkah"
+                        value={googleNameInput}
+                        onChange={(e) => setGoogleNameInput(e.target.value)}
+                        className="w-full px-3.5 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3]"
+                      />
+                    </div>
+
+                    <div className="pt-2 flex gap-2">
+                      <button 
+                        type="button" 
+                        onClick={() => setShowGoogleLoginModal(false)}
+                        className="flex-1 py-2.5 bg-[#21254d] text-slate-300 hover:text-white rounded-xl text-xs font-bold"
+                      >
+                        Batal
+                      </button>
+                      <button 
+                        type="submit"
+                        className="flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl text-xs font-black shadow-lg"
+                      >
+                        Masuk Sekarang
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
           </div>
         );
       }
