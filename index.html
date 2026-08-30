@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>POSPro - Sistem Kasir & Manajemen Bisnis Modern</title>
+  <title>POSPro - Sistem Kasir & Manajemen Toko</title>
   
   <!-- CDN Pustaka Inti -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -106,51 +106,13 @@
     #scanner-reader canvas, #scanner-reader__dashboard {
       display: none !important;
     }
-
-    .glow-cyan { box-shadow: 0 0 20px -5px rgba(0, 210, 211, 0.4); }
-    .glow-indigo { box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.5); }
   </style>
 </head>
 <body class="bg-[#0f1228] text-slate-100 antialiased select-none dark">
   <div id="root"></div>
 
-  <script type="text/babel" data-type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { 
-      getAuth, 
-      signInWithCustomToken, 
-      signInAnonymously, 
-      GoogleAuthProvider, 
-      signInWithPopup, 
-      signOut, 
-      onAuthStateChanged 
-    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { 
-      getFirestore, 
-      doc, 
-      getDoc, 
-      setDoc, 
-      onSnapshot, 
-      collection 
-    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
+  <script type="text/babel">
     const { useState, useEffect, useMemo, useRef, useCallback, Component } = React;
-
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'pospro-pos-app';
-    const firebaseConfig = typeof __firebase_config !== 'undefined' 
-      ? JSON.parse(__firebase_config) 
-      : {
-          apiKey: "AIzaSyDemoKeyPosProModern2026",
-          authDomain: "pospro-modern.firebaseapp.com",
-          projectId: "pospro-modern",
-          storageBucket: "pospro-modern.appspot.com",
-          messagingSenderId: "1029384756",
-          appId: "1:1029384756:web:987654321fedcba"
-        };
-
-    const firebaseApp = initializeApp(firebaseConfig);
-    const auth = getAuth(firebaseApp);
-    const db = getFirestore(firebaseApp);
 
     class ErrorBoundary extends Component {
       constructor(props) {
@@ -161,7 +123,7 @@
         return { hasError: true, error };
       }
       componentDidCatch(error, errorInfo) {
-        console.error("POSPro App Error:", error, errorInfo);
+        console.error("POSPro Error:", error, errorInfo);
       }
       render() {
         if (this.state.hasError) {
@@ -171,9 +133,9 @@
                 <div className="w-14 h-14 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <i data-lucide="triangle-alert" className="w-8 h-8"></i>
                 </div>
-                <h2 className="text-lg font-black text-white">Terjadi Kendala Sistem</h2>
-                <p className="text-xs text-slate-400 mt-2">Data kasir Anda tetap aman di memori. Silakan klik tombol di bawah untuk memuat ulang aplikasi.</p>
-                <div className="mt-6 flex flex-col gap-2">
+                <h2 className="text-lg font-black text-white">Terjadi Kendala Tampilan</h2>
+                <p className="text-xs text-slate-400 mt-2">Data kasir Anda tetap tersimpan aman di Chrome. Klik tombol di bawah untuk memuat ulang.</p>
+                <div className="mt-6">
                   <button 
                     onClick={() => window.location.reload()} 
                     className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-lg transition-all"
@@ -238,7 +200,7 @@
     };
 
     const defaultSettings = {
-      name: 'POSPro Store', tagline: 'Sistem Kasir & Manajemen UMKM Modern', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
+      name: 'POSPro Store', tagline: 'Sistem Kasir & Manajemen Toko Modern', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
       receiptFooter: 'Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar.', invoicePrefix: 'INV-', taxPercent: 0, defaultDiscount: 0, currency: 'IDR',
       paymentMethods: ['Cash', 'Debit', 'Transfer', 'QRIS', 'E-wallet', 'Hutang']
     };
@@ -268,14 +230,39 @@
       }
     ];
 
-    function App() {
-      const [authUser, setAuthUser] = useState(null);
-      const [isAuthLoading, setIsAuthLoading] = useState(true);
-      const [isLoggingIn, setIsLoggingIn] = useState(false);
-      const [isDemoMode, setIsDemoMode] = useState(false);
-      const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+    /* Helper Aman LocalStorage */
+    const loadFromLocal = (key, fallback) => {
+      try {
+        const item = localStorage.getItem(key);
+        return item ? JSON.parse(item) : fallback;
+      } catch (e) {
+        return fallback;
+      }
+    };
 
-      const [theme, setTheme] = useState('dark');
+    const saveToLocal = (key, value) => {
+      try {
+        localStorage.setItem(key, JSON.stringify(value));
+      } catch (e) {
+        console.error("Gagal simpan ke localStorage", e);
+      }
+    };
+
+    function App() {
+      // Manajemen Akun / Profil Toko Lokal
+      const [profiles, setProfiles] = useState(() => loadFromLocal('pospro_profiles', [
+        { id: 'main_store', name: 'Toko Utama', role: 'owner', isDemo: false },
+        { id: 'demo_store', name: 'Toko Demo (Uji Coba)', role: 'owner', isDemo: true }
+      ]));
+
+      const [activeProfileId, setActiveProfileId] = useState(() => loadFromLocal('pospro_active_profile', 'main_store'));
+
+      const activeProfile = useMemo(() => {
+        return profiles.find(p => p.id === activeProfileId) || profiles[0];
+      }, [profiles, activeProfileId]);
+
+      // Tema
+      const [theme, setTheme] = useState(() => loadFromLocal('pospro_theme', 'dark'));
 
       useEffect(() => {
         const root = document.documentElement;
@@ -286,11 +273,10 @@
           root.classList.remove('dark');
           document.body.className = "bg-[#f4f6fb] text-slate-800 antialiased select-none";
         }
+        saveToLocal('pospro_theme', theme);
       }, [theme]);
 
-      const toggleTheme = () => {
-        setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-      };
+      const toggleTheme = () => setTheme(prev => prev === 'dark' ? 'light' : 'dark');
 
       const [activeTab, setActiveTab] = useState('dashboard');
       
@@ -308,197 +294,142 @@
 
       const [currentUserRole, setCurrentUserRole] = useState({ name: 'Owner Toko', role: 'owner', avatar: 'OT' });
       const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
+      const [showProfileSwitcher, setShowProfileSwitcher] = useState(false);
+      const [showNewProfileModal, setShowNewProfileModal] = useState(false);
+      const [newProfileName, setNewProfileName] = useState('');
       const [showMobileCartDrawer, setShowMobileCartDrawer] = useState(false);
 
       const currentUser = currentUserRole;
 
       const [authModal, setAuthModal] = useState({ show: false, targetRole: null, password: '' });
-      const [rolePasswords, setRolePasswords] = useState({ owner: 'owner123', admin: 'admin123' });
+      const [rolePasswords, setRolePasswords] = useState(() => loadFromLocal('pospro_passwords', { owner: 'owner123', admin: 'admin123' }));
 
-      // State Data Aplikasi
-      const [storeSettings, setStoreSettings] = useState(defaultSettings);
-      const [products, setProducts] = useState(defaultProducts);
-      const [transactions, setTransactions] = useState([]);
-      const [draftOrders, setDraftOrders] = useState([]);
-      const [customers, setCustomers] = useState([]);
-      const [suppliers, setSuppliers] = useState([]);
-      const [expenses, setExpenses] = useState([]);
-      const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+      // Key penyimpan data terisolasi per profil toko di localStorage
+      const storageKey = `pospro_data_${activeProfileId}`;
 
-      // Pantau Status Login Pengguna
-      useEffect(() => {
-        let isMounted = true;
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-          if (!isMounted) return;
-          if (user) {
-            setAuthUser(user);
-            setIsDemoMode(false);
-            setCurrentUserRole({
-              name: user.displayName || user.email?.split('@')[0] || 'Pemilik Toko',
-              role: 'owner',
-              avatar: (user.displayName || user.email || 'OT').slice(0, 2).toUpperCase()
-            });
-            setIsAuthLoading(false);
-          } else {
-            // Cek Custom Token jika ada di runtime environment
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-              try {
-                await signInWithCustomToken(auth, __initial_auth_token);
-              } catch (err) {
-                setAuthUser(null);
-                setIsAuthLoading(false);
-              }
-            } else {
-              setAuthUser(null);
-              setIsAuthLoading(false);
-            }
-          }
-        });
+      // State Data Toko Utama
+      const [storeSettings, setStoreSettings] = useState(() => {
+        const saved = loadFromLocal(`${storageKey}_settings`, null);
+        if (saved) return saved;
+        return activeProfile.isDemo ? { ...defaultSettings, name: 'Toko Demo POSPro' } : defaultSettings;
+      });
 
-        return () => {
-          isMounted = false;
-          unsubscribe();
-        };
-      }, []);
+      const [products, setProducts] = useState(() => {
+        const saved = loadFromLocal(`${storageKey}_products`, null);
+        if (saved) return saved;
+        return defaultProducts;
+      });
 
-      useEffect(() => {
-        if (!authUser) return;
+      const [transactions, setTransactions] = useState(() => {
+        const saved = loadFromLocal(`${storageKey}_transactions`, null);
+        if (saved) return saved;
+        return activeProfile.isDemo ? demoTransactions : [];
+      });
 
-        const userId = authUser.uid;
-        // Strict path: /artifacts/{appId}/users/{userId}/store_data/main_store_data
-        const userStoreDocRef = doc(db, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
-
-        const unsubscribeDoc = onSnapshot(userStoreDocRef, (snapshot) => {
-          if (snapshot.exists()) {
-            const data = snapshot.data();
-            if (data.storeSettings) setStoreSettings(data.storeSettings);
-            if (data.products) setProducts(data.products);
-            if (data.transactions) setTransactions(data.transactions);
-            if (data.draftOrders) setDraftOrders(data.draftOrders);
-            if (data.customers) setCustomers(data.customers);
-            if (data.suppliers) setSuppliers(data.suppliers);
-            if (data.expenses) setExpenses(data.expenses);
-            if (data.rolePasswords) setRolePasswords(data.rolePasswords);
-          } else {
-            // Setup awal untuk akun Google baru
-            const initStore = {
-              storeSettings: { 
-                ...defaultSettings, 
-                name: authUser.displayName ? `Toko ${authUser.displayName}` : 'Toko Saya' 
-              },
-              products: defaultProducts,
-              transactions: [],
-              draftOrders: [],
-              customers: [],
-              suppliers: [],
-              expenses: [],
-              rolePasswords: { owner: 'owner123', admin: 'admin123' },
-              createdAt: new Date().toISOString(),
-              userEmail: authUser.email || '',
-              userName: authUser.displayName || 'Pemilik Toko'
-            };
-
-            setStoreSettings(initStore.storeSettings);
-            setProducts(initStore.products);
-            setTransactions(initStore.transactions);
-
-            setDoc(userStoreDocRef, initStore).catch((err) => console.error("Error initial store setup:", err));
-          }
-        }, (error) => {
-          console.error("Firestore user sync error:", error);
-        });
-
-        return () => unsubscribeDoc();
-      }, [authUser]);
-
-      const syncToCloud = useCallback(async (overrides = {}) => {
-        if (!authUser) return;
-        const userId = authUser.uid;
-        const userStoreDocRef = doc(db, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
-        
-        setIsCloudSyncing(true);
-        try {
-          await setDoc(userStoreDocRef, {
-            storeSettings: overrides.storeSettings || storeSettings,
-            products: overrides.products || products,
-            transactions: overrides.transactions || transactions,
-            draftOrders: overrides.draftOrders || draftOrders,
-            customers: overrides.customers || customers,
-            suppliers: overrides.suppliers || suppliers,
-            expenses: overrides.expenses || expenses,
-            rolePasswords: overrides.rolePasswords || rolePasswords,
-            lastUpdated: new Date().toISOString(),
-            userEmail: authUser.email || '',
-            userName: authUser.displayName || ''
-          }, { merge: true });
-        } catch (e) {
-          console.error("Gagal sinkronisasi data cloud:", e);
-        } finally {
-          setIsCloudSyncing(false);
-        }
-      }, [authUser, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords]);
-
-      // Handle Login Google
-      const handleGoogleLogin = async () => {
-        setIsLoggingIn(true);
-        try {
-          const provider = new GoogleAuthProvider();
-          provider.setCustomParameters({ prompt: 'select_account' });
-          await signInWithPopup(auth, provider);
-          showToast('Berhasil masuk dengan Akun Google!');
-        } catch (err) {
-          console.error("Google Auth error:", err);
-          try {
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-              await signInWithCustomToken(auth, __initial_auth_token);
-              showToast('Berhasil terhubung akun!');
-            } else {
-              await signInAnonymously(auth);
-              showToast('Masuk dengan sesi cloud privat');
-            }
-          } catch (anonErr) {
-            showToast('Gagal masuk: ' + (err.message || 'Periksa koneksi'), 'error');
-          }
-        } finally {
-          setIsLoggingIn(false);
-        }
-      };
-
-      // Handle Masuk Mode Demo
-      const handleEnterDemoMode = () => {
-        setIsDemoMode(true);
-        setStoreSettings({ ...defaultSettings, name: 'Toko Demo POSPro' });
-        setProducts(defaultProducts);
-        setTransactions(demoTransactions);
-        setCustomers([
+      const [draftOrders, setDraftOrders] = useState(() => loadFromLocal(`${storageKey}_drafts`, []));
+      const [customers, setCustomers] = useState(() => {
+        const saved = loadFromLocal(`${storageKey}_customers`, null);
+        if (saved) return saved;
+        return activeProfile.isDemo ? [
           { id: 'CUST-001', name: 'Budi Santoso', phone: '081298765432', address: 'Jakarta Selatan', totalTrx: 1, totalSpent: 38000, debt: 0 },
           { id: 'CUST-002', name: 'Siti Rahma', phone: '085712349988', address: 'Bandung', totalTrx: 0, totalSpent: 0, debt: 50000 }
-        ]);
-        setSuppliers([
+        ] : [];
+      });
+
+      const [suppliers, setSuppliers] = useState(() => {
+        const saved = loadFromLocal(`${storageKey}_suppliers`, null);
+        if (saved) return saved;
+        return activeProfile.isDemo ? [
           { id: 'SUP-001', name: 'PT. Kopi Nusantara', contactPerson: 'Hendra', phone: '0811223344', address: 'Jakarta', totalPurchases: 540000, debt: 0 }
-        ]);
-        setExpenses([
+        ] : [];
+      });
+
+      const [expenses, setExpenses] = useState(() => {
+        const saved = loadFromLocal(`${storageKey}_expenses`, null);
+        if (saved) return saved;
+        return activeProfile.isDemo ? [
           { id: 'EXP-101', date: new Date().toLocaleDateString('id-ID'), category: 'Listrik', amount: 150000, note: 'Token Listrik Toko' }
-        ]);
-        setCurrentUserRole({ name: 'Kasir Demo', role: 'owner', avatar: 'DM' });
-        showToast('Masuk sebagai Mode Demo! Data siap dicoba.');
+        ] : [];
+      });
+
+      useEffect(() => {
+        saveToLocal('pospro_profiles', profiles);
+      }, [profiles]);
+
+      useEffect(() => {
+        saveToLocal('pospro_active_profile', activeProfileId);
+      }, [activeProfileId]);
+
+      useEffect(() => {
+        saveToLocal(`${storageKey}_settings`, storeSettings);
+      }, [storageKey, storeSettings]);
+
+      useEffect(() => {
+        saveToLocal(`${storageKey}_products`, products);
+      }, [storageKey, products]);
+
+      useEffect(() => {
+        saveToLocal(`${storageKey}_transactions`, transactions);
+      }, [storageKey, transactions]);
+
+      useEffect(() => {
+        saveToLocal(`${storageKey}_drafts`, draftOrders);
+      }, [storageKey, draftOrders]);
+
+      useEffect(() => {
+        saveToLocal(`${storageKey}_customers`, customers);
+      }, [storageKey, customers]);
+
+      useEffect(() => {
+        saveToLocal(`${storageKey}_suppliers`, suppliers);
+      }, [storageKey, suppliers]);
+
+      useEffect(() => {
+        saveToLocal(`${storageKey}_expenses`, expenses);
+      }, [storageKey, expenses]);
+
+      useEffect(() => {
+        saveToLocal('pospro_passwords', rolePasswords);
+      }, [rolePasswords]);
+
+      // Beralih Profil Toko
+      const handleSwitchProfile = (profileId) => {
+        setActiveProfileId(profileId);
+        const targetProf = profiles.find(p => p.id === profileId) || profiles[0];
+        const newKey = `pospro_data_${profileId}`;
+        
+        setStoreSettings(loadFromLocal(`${newKey}_settings`, targetProf.isDemo ? { ...defaultSettings, name: 'Toko Demo POSPro' } : defaultSettings));
+        setProducts(loadFromLocal(`${newKey}_products`, defaultProducts));
+        setTransactions(loadFromLocal(`${newKey}_transactions`, targetProf.isDemo ? demoTransactions : []));
+        setDraftOrders(loadFromLocal(`${newKey}_drafts`, []));
+        setCustomers(loadFromLocal(`${newKey}_customers`, targetProf.isDemo ? [
+          { id: 'CUST-001', name: 'Budi Santoso', phone: '081298765432', address: 'Jakarta', totalTrx: 1, totalSpent: 38000, debt: 0 }
+        ] : []));
+        setSuppliers(loadFromLocal(`${newKey}_suppliers`, targetProf.isDemo ? [
+          { id: 'SUP-001', name: 'PT. Kopi Nusantara', contactPerson: 'Hendra', phone: '0811223344', address: 'Jakarta', totalPurchases: 540000, debt: 0 }
+        ] : []));
+        setExpenses(loadFromLocal(`${newKey}_expenses`, targetProf.isDemo ? [
+          { id: 'EXP-101', date: new Date().toLocaleDateString('id-ID'), category: 'Listrik', amount: 150000, note: 'Token Listrik Toko' }
+        ] : []));
+        
+        setShowProfileSwitcher(false);
+        showToast(`Beralih ke akun: ${targetProf.name}`);
       };
 
-      // Handle Logout
-      const handleExecuteLogout = async () => {
-        setShowLogoutConfirm(false);
-        try {
-          if (authUser) {
-            await signOut(auth);
-            setAuthUser(null);
-          }
-          setIsDemoMode(false);
-          showToast('Berhasil keluar.');
-        } catch (e) {
-          showToast('Gagal keluar akun', 'error');
-        }
+      const handleCreateNewProfile = (e) => {
+        e.preventDefault();
+        if (!newProfileName.trim()) return;
+        const newId = `store_${Date.now()}`;
+        const newProf = { id: newId, name: newProfileName.trim(), role: 'owner', isDemo: false };
+        const updatedProfiles = [...profiles, newProf];
+        setProfiles(updatedProfiles);
+        setNewProfileName('');
+        setShowNewProfileModal(false);
+        handleSwitchProfile(newId);
+        showToast(`Profil toko "${newProf.name}" berhasil dibuat!`);
       };
 
+      // State Keranjang & Kasir
       const [cart, setCart] = useState([]);
       const [discount, setDiscount] = useState(0);
       const [cashReceived, setCashReceived] = useState('');
@@ -527,7 +458,7 @@
       const cameraNativeInputRef = useRef(null);
       const galleryInputRef = useRef(null);
 
-      // Modals
+      // State Modal Form
       const [isProductModalOpen, setIsProductModalOpen] = useState(false);
       const [editingProduct, setEditingProduct] = useState(null);
       const [productForm, setProductForm] = useState({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' });
@@ -691,7 +622,7 @@
           if (existing && !editingProduct) {
             setEditingProduct(existing);
             setProductForm(existing);
-            showToast(`Produk "${existing.name}" ditemukan! Memuat data...`, 'info');
+            showToast(`Produk "${existing.name}" ditemukan! Memuat data...`);
           } else {
             setProductForm(prev => ({ ...prev, sku: cleanCode }));
             showToast(`SKU Barcode ${cleanCode} berhasil dimasukkan!`);
@@ -709,10 +640,9 @@
             };
             setProducts(updatedProducts);
             showToast(`✅ +1 Stok "${updatedProducts[matchedIndex].name}" (Total: ${newStock})`);
-            syncToCloud({ products: updatedProducts });
             if (!scannerModal.continuousMode) closeScannerModal();
           } else {
-            showToast(`Barcode "${cleanCode}" belum ada. Membuka form baru...`, 'warning');
+            showToast(`Barcode "${cleanCode}" belum ada. Membuka form baru...`, 'error');
             setEditingProduct(null);
             setProductForm({ sku: cleanCode, name: '', costPrice: '', price: '', packPrice: '', stock: 1, category: 'Umum', supplier: '' });
             setIsProductModalOpen(true);
@@ -728,7 +658,7 @@
             showToast(`Barcode "${cleanCode}" belum terdaftar!`, 'error');
           }
         }
-      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal, syncToCloud]);
+      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal]);
 
       const handleImageFileScan = async (e) => {
         const file = e.target.files && e.target.files[0];
@@ -935,8 +865,6 @@
         setShowMobileCartDrawer(false);
         showToast('Transaksi Berhasil Disimpan!');
         setViewingTransaction(newTransaction);
-
-        syncToCloud({ transactions: newTrxList, products: updatedProducts, customers: updatedCustomers });
       };
 
       const handleSaveProduct = (e) => {
@@ -961,14 +889,11 @@
         }
         setIsProductModalOpen(false);
         setIsSaving(false);
-        syncToCloud({ products: updatedProducts });
       };
 
       const handleDeleteProduct = (id) => { 
-        const updatedProducts = products.filter(p => p.id !== id);
-        setProducts(updatedProducts);
+        setProducts(products.filter(p => p.id !== id));
         showToast('Produk dihapus');
-        syncToCloud({ products: updatedProducts });
       };
 
       const handleSaveRestock = (e) => {
@@ -996,7 +921,6 @@
         
         setSuppliers(updatedSuppliers); setProducts(updatedProducts); setShowRestockModal(false); 
         showToast(unpaidDebt > 0 ? `Stok masuk tersimpan. Hutang dicatat.` : 'Stok masuk berhasil disimpan!');
-        syncToCloud({ products: updatedProducts, suppliers: updatedSuppliers });
       };
 
       const handleSaveStockOut = (e) => {
@@ -1016,76 +940,83 @@
         if (!hasValidItems) { showToast('Pilih minimal 1 produk', 'error'); return; }
         
         setProducts(updatedProducts); setShowStockOutModal(false); showToast(`Stok berhasil dikeluarkan`);
-        syncToCloud({ products: updatedProducts });
       };
 
       const handleSaveCustomer = (e) => { 
         e.preventDefault(); 
-        let updated;
         if (editingCustomer) { 
-          updated = customers.map(c => c.id === editingCustomer.id ? { ...c, ...customerForm } : c);
-          setCustomers(updated); showToast('Pelanggan diperbarui'); setIsCustomerModalOpen(false);
+          setCustomers(customers.map(c => c.id === editingCustomer.id ? { ...c, ...customerForm } : c));
+          showToast('Pelanggan diperbarui');
         } else { 
           const newCustomer = { ...customerForm, id: `CUST-${Math.floor(1000 + Math.random() * 9000)}`, totalTrx: 0, totalSpent: 0, debt: 0 };
-          updated = [...customers, newCustomer];
-          setCustomers(updated); showToast('Pelanggan ditambahkan'); setIsCustomerModalOpen(false);
+          setCustomers([...customers, newCustomer]);
+          showToast('Pelanggan ditambahkan');
         } 
-        syncToCloud({ customers: updated });
+        setIsCustomerModalOpen(false);
       };
       
       const handleDeleteCustomer = (id) => { 
-        const updated = customers.filter(c => c.id !== id);
-        setCustomers(updated); if (selectedCustomerPOS === id) setSelectedCustomerPOS(''); showToast('Pelanggan dihapus');
-        syncToCloud({ customers: updated });
+        setCustomers(customers.filter(c => c.id !== id));
+        if (selectedCustomerPOS === id) setSelectedCustomerPOS('');
+        showToast('Pelanggan dihapus');
       };
       
       const handleSaveSupplier = (e) => { 
         e.preventDefault(); 
-        let updated;
         if (editingSupplier) { 
-          updated = suppliers.map(s => s.id === editingSupplier.id ? { ...s, ...supplierForm } : s);
-          setSuppliers(updated); showToast('Supplier diperbarui'); setIsSupplierModalOpen(false);
+          setSuppliers(suppliers.map(s => s.id === editingSupplier.id ? { ...s, ...supplierForm } : s));
+          showToast('Supplier diperbarui');
         } else { 
           const newSupp = { ...supplierForm, id: `SUP-${Math.floor(1000 + Math.random() * 9000)}`, totalPurchases: 0, debt: 0 };
-          updated = [...suppliers, newSupp];
-          setSuppliers(updated); showToast('Supplier ditambahkan'); setIsSupplierModalOpen(false);
+          setSuppliers([...suppliers, newSupp]);
+          showToast('Supplier ditambahkan');
         } 
-        syncToCloud({ suppliers: updated });
+        setIsSupplierModalOpen(false);
       };
 
       const handleDeleteSupplier = (id) => { 
-        const updated = suppliers.filter(s => s.id !== id);
-        setSuppliers(updated); showToast('Supplier dihapus');
-        syncToCloud({ suppliers: updated });
+        setSuppliers(suppliers.filter(s => s.id !== id));
+        showToast('Supplier dihapus');
       };
 
       const handleSaveExpense = (e) => {
-        e.preventDefault(); const amountVal = Number(expenseForm.amount) || 0; if (amountVal <= 0) { showToast('Masukkan nominal valid', 'error'); return; }
-        const dateParts = expenseForm.date.split('-'); const formattedDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
+        e.preventDefault(); 
+        const amountVal = Number(expenseForm.amount) || 0; 
+        if (amountVal <= 0) { showToast('Masukkan nominal valid', 'error'); return; }
+        const dateParts = expenseForm.date.split('-'); 
+        const formattedDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
         const newExp = { id: `EXP-${Math.floor(1000 + Math.random() * 9000)}`, date: formattedDate, category: expenseForm.category, amount: amountVal, note: expenseForm.note || '-' };
-        const updated = [newExp, ...expenses];
-        setExpenses(updated); setIsExpenseModalOpen(false); setExpenseForm({ category: 'Listrik', amount: '', date: new Date().toISOString().split('T')[0], note: '' }); showToast('Pengeluaran dicatat');
-        syncToCloud({ expenses: updated });
+        setExpenses([newExp, ...expenses]);
+        setIsExpenseModalOpen(false);
+        setExpenseForm({ category: 'Listrik', amount: '', date: new Date().toISOString().split('T')[0], note: '' });
+        showToast('Pengeluaran dicatat');
       };
 
       const handleDeleteExpense = (id) => { 
-        const updated = expenses.filter(e => e.id !== id);
-        setExpenses(updated); showToast('Pengeluaran dihapus');
-        syncToCloud({ expenses: updated });
+        setExpenses(expenses.filter(e => e.id !== id));
+        showToast('Pengeluaran dihapus');
       };
 
       const handlePayCustomerDebt = (e) => { 
-        e.preventDefault(); const payAmount = Number(customerPayAmount) || 0; if (payAmount <= 0) { showToast('Masukkan nominal valid', 'error'); return; } if (payAmount > (paymentModalCustomer.debt || 0)) { showToast('Melebihi piutang!', 'error'); return; } 
-        const updated = customers.map(c => c.id === paymentModalCustomer.id ? { ...c, debt: (c.debt || 0) - payAmount } : c);
-        setCustomers(updated); showToast('Pelunasan piutang dicatat.'); setPaymentModalCustomer(null); setCustomerPayAmount('');
-        syncToCloud({ customers: updated });
+        e.preventDefault(); 
+        const payAmount = Number(customerPayAmount) || 0; 
+        if (payAmount <= 0) { showToast('Masukkan nominal valid', 'error'); return; } 
+        if (payAmount > (paymentModalCustomer.debt || 0)) { showToast('Melebihi piutang!', 'error'); return; } 
+        setCustomers(customers.map(c => c.id === paymentModalCustomer.id ? { ...c, debt: (c.debt || 0) - payAmount } : c));
+        showToast('Pelunasan piutang dicatat.');
+        setPaymentModalCustomer(null);
+        setCustomerPayAmount('');
       };
       
       const handlePaySupplierDebt = (e) => { 
-        e.preventDefault(); const payAmount = Number(supplierPayAmount) || 0; if (payAmount <= 0) { showToast('Masukkan nominal valid', 'error'); return; } if (payAmount > (paymentModalSupplier.debt || 0)) { showToast('Melebihi hutang!', 'error'); return; } 
-        const updated = suppliers.map(s => s.id === paymentModalSupplier.id ? { ...s, debt: (s.debt || 0) - payAmount } : s);
-        setSuppliers(updated); showToast('Pelunasan hutang dicatat.'); setPaymentModalSupplier(null); setSupplierPayAmount('');
-        syncToCloud({ suppliers: updated });
+        e.preventDefault(); 
+        const payAmount = Number(supplierPayAmount) || 0; 
+        if (payAmount <= 0) { showToast('Masukkan nominal valid', 'error'); return; } 
+        if (payAmount > (paymentModalSupplier.debt || 0)) { showToast('Melebihi hutang!', 'error'); return; } 
+        setSuppliers(suppliers.map(s => s.id === paymentModalSupplier.id ? { ...s, debt: (s.debt || 0) - payAmount } : s));
+        showToast('Pelunasan hutang dicatat.');
+        setPaymentModalSupplier(null);
+        setSupplierPayAmount('');
       };
 
       const handleRoleSwitchRequest = (roleObj) => {
@@ -1115,6 +1046,7 @@
 
       const handleBackupDatabase = () => {
         const backupData = {
+          profile: activeProfile,
           storeSettings,
           products,
           transactions,
@@ -1129,10 +1061,10 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `backup_pospro_${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `backup_pospro_${activeProfile.name.toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
-        showToast('Backup berhasil diunduh!');
+        showToast('Cadangan data berhasil diunduh!');
       };
 
       const handleRestoreDatabase = (e) => {
@@ -1150,7 +1082,6 @@
             if (data.storeSettings) setStoreSettings(data.storeSettings);
             if (data.rolePasswords) setRolePasswords(data.rolePasswords);
             showToast('Data berhasil dipulihkan dari file backup!');
-            syncToCloud(data);
           } catch (err) {
             showToast('Gagal memulihkan data: Format file tidak valid', 'error');
           }
@@ -1260,7 +1191,7 @@
         return (
           <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 max-w-7xl mx-auto">
             {/* Banner Mode Demo jika aktif */}
-            {isDemoMode && (
+            {activeProfile.isDemo && (
               <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-purple-500/20 border border-amber-500/40 p-3 sm:p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-2xl bg-amber-500/30 text-amber-300 flex items-center justify-center shrink-0">
@@ -1268,15 +1199,15 @@
                   </div>
                   <div>
                     <h4 className="text-xs sm:text-sm font-black text-white">Anda Sedang Menggunakan Mode Demo</h4>
-                    <p className="text-[11px] text-amber-200/80">Data tersimpan sementara. Hubungkan akun Google untuk menyimpan data toko Anda ke Cloud.</p>
+                    <p className="text-[11px] text-amber-200/80">Data ini hanya simulasi. Klik ganti akun toko untuk mengelola toko asli Anda.</p>
                   </div>
                 </div>
                 <button 
-                  onClick={handleGoogleLogin} 
-                  className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md shrink-0"
+                  onClick={() => handleSwitchProfile('main_store')} 
+                  className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md shrink-0"
                 >
-                  <Icon name="cloud" className="w-4 h-4"/>
-                  <span>Simpan ke Akun Google</span>
+                  <Icon name="store" className="w-4 h-4"/>
+                  <span>Buka Toko Utama</span>
                 </button>
               </div>
             )}
@@ -1538,90 +1469,6 @@
         );
       };
 
-      if (isAuthLoading) {
-        return (
-          <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-6 text-center">
-            <div className="w-12 h-12 border-4 border-indigo-500/30 border-t-[#00d2d3] rounded-full animate-spin mb-4"></div>
-            <p className="text-sm font-bold text-slate-300">Menghubungkan ke POSPro...</p>
-          </div>
-        );
-      }
-
-      if (!authUser && !isDemoMode) {
-        return (
-          <div className="min-h-screen bg-[#0f1228] text-white flex items-center justify-center p-4 relative overflow-hidden">
-            {/* Background Glow Blobs */}
-            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -translate-y-1/2"></div>
-            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none translate-x-1/2 translate-y-1/2"></div>
-            
-            <div className="w-full max-w-md bg-[#181b3b] border border-[#2a2f60] rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10 space-y-6">
-              <div className="text-center space-y-2">
-                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center mx-auto shadow-lg glow-indigo">
-                  <Icon name="store" className="w-7 h-7 text-white"/>
-                </div>
-                <h1 className="text-2xl font-black tracking-tight text-white pt-1">POSPro Modern</h1>
-                <p className="text-xs text-slate-400">Sistem Kasir, Manajemen Stok & Analisis Bisnis Toko</p>
-              </div>
-
-              {/* Card List Keunggulan */}
-              <div className="bg-[#21254d]/60 border border-[#2a2f60] rounded-2xl p-3.5 space-y-2 text-xs">
-                <div className="flex items-center gap-2.5 text-slate-300">
-                  <Icon name="check-circle-2" className="w-4 h-4 text-[#00d2d3] shrink-0" />
-                  <span>Database Cloud privat & terisolasi per akun</span>
-                </div>
-                <div className="flex items-center gap-2.5 text-slate-300">
-                  <Icon name="check-circle-2" className="w-4 h-4 text-[#00d2d3] shrink-0" />
-                  <span>Scan barcode langsung via kamera HP</span>
-                </div>
-                <div className="flex items-center gap-2.5 text-slate-300">
-                  <Icon name="check-circle-2" className="w-4 h-4 text-[#00d2d3] shrink-0" />
-                  <span>Dukungan scanner USB/Bluetooth di PC/Laptop</span>
-                </div>
-              </div>
-
-              <div className="space-y-3 pt-1">
-                <button
-                  onClick={handleGoogleLogin}
-                  disabled={isLoggingIn}
-                  className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-3 shadow-xl active:scale-[0.98] transition-all disabled:opacity-60"
-                >
-                  {isLoggingIn ? (
-                    <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    <svg className="w-5 h-5" viewBox="0 0 24 24">
-                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                    </svg>
-                  )}
-                  <span>Masuk dengan Akun Google</span>
-                </button>
-
-                <div className="relative flex items-center justify-center py-1">
-                  <div className="border-t border-[#2a2f60] w-full"></div>
-                  <span className="bg-[#181b3b] px-3 text-[11px] font-bold text-slate-400 uppercase tracking-widest absolute">atau</span>
-                </div>
-
-                <button
-                  onClick={handleEnterDemoMode}
-                  className="w-full py-3 px-4 bg-[#21254d] hover:bg-[#282d5e] text-slate-200 border border-[#2a2f60] hover:border-indigo-500/50 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
-                >
-                  <Icon name="sparkles" className="w-4 h-4 text-amber-400" />
-                  <span>Coba Gratis Mode Demo (Tanpa Login)</span>
-                </button>
-              </div>
-
-              <div className="pt-2 text-center">
-                <p className="text-[10px] text-slate-400">
-                  Data kasir Anda dienkripsi aman dan hanya dapat diakses oleh akun Anda sendiri.
-                </p>
-              </div>
-            </div>
-          </div>
-        );
-      }
-
       const renderCartContent = () => {
         const isPaymentExact = paymentMethod !== 'Cash' && paymentMethod !== 'Hutang';
         const isReadyToPay = cart.length > 0 && (isPaymentExact || (paymentMethod === 'Cash' && cashReceived && parseInt(cashReceived) >= grandTotal) || (paymentMethod === 'Hutang')); 
@@ -1660,7 +1507,7 @@
                 <div className="h-full min-h-[180px] flex flex-col items-center justify-center text-slate-400 opacity-60 space-y-2">
                   <Icon name="shopping-bag" className="w-12 h-12" />
                   <p className="text-xs font-bold">Keranjang masih kosong</p>
-                  <p className="text-[10px]">Pilih produk atau scan barcode fisik kemasan.</p>
+                  <p className="text-[10px]">Pilih produk atau scan barcode kemasan barang.</p>
                 </div>
               ) : (
                 cart.map(item => (
@@ -1969,7 +1816,7 @@
             }`}>
               <div>
                 <h2 className="text-xl sm:text-2xl font-black tracking-tight">Laporan Keuangan & Profit</h2>
-                <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Analisis omzet penjualan, harga pokok modal, dan laba bersih riil.</p>
+                <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Analisis omzet penjualan, harga pokok modal, dan laba bersih riil ({activeProfile.name}).</p>
               </div>
               <div className={`flex p-1 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-100 border-slate-200'}`}>
                 {['today', 'week', 'month', 'year'].map(p => (
@@ -2020,21 +1867,20 @@
                 <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-black text-white shadow-lg">
                   <Icon name="store" className="w-5 h-5"/>
                 </div>
-                <div>
-                  <h1 className={`text-base font-black tracking-tight leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                <div className="overflow-hidden">
+                  <h1 className={`text-base font-black tracking-tight leading-none truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
                     {storeSettings.name}
                   </h1>
                   <div className="flex items-center gap-1 mt-1">
                     <p className="text-[10px] font-bold text-[#00d2d3] uppercase tracking-widest">
-                      {isDemoMode ? 'MODE DEMO' : 'CLOUD SYNC'}
+                      {activeProfile.isDemo ? 'MODE DEMO' : 'PENYIMPANAN CHROME'}
                     </p>
-                    {isCloudSyncing && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>}
                   </div>
                 </div>
               </div>
             </div>
             
-            {/* User Info Card */}
+            {/* Akun & Profil Toko Card */}
             <div className="px-4 mb-2">
               <div className={`p-3 rounded-2xl border flex items-center justify-between ${
                 theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50 border-slate-200'
@@ -2047,24 +1893,14 @@
                     <p className={`font-bold text-xs truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{currentUser.name}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold uppercase">{currentUser.role}</span>
-                      {authUser?.email ? (
-                        <span className="text-[9px] text-slate-400 truncate max-w-[80px]" title={authUser.email}>
-                          {authUser.email.split('@')[0]}
-                        </span>
-                      ) : isDemoMode ? (
-                        <span className="text-[9px] text-amber-400 font-bold">Tamu</span>
-                      ) : null}
+                      <span className="text-[9px] text-slate-400 truncate max-w-[70px]">{activeProfile.name}</span>
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
                   <button onClick={() => setShowRoleSwitcher(!showRoleSwitcher)} className="text-[10px] text-[#00d2d3] hover:underline font-bold px-1 py-0.5">Role</button>
-                  <button 
-                    onClick={() => setShowLogoutConfirm(true)} 
-                    className="text-slate-400 hover:text-rose-400 p-1" 
-                    title={isDemoMode ? "Keluar Demo" : "Keluar Akun Google"}
-                  >
-                    <Icon name="log-out" className="w-3.5 h-3.5" />
+                  <button onClick={() => setShowProfileSwitcher(!showProfileSwitcher)} className="text-slate-400 hover:text-white p-1" title="Ganti Toko / Akun">
+                    <Icon name="users" className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -2128,7 +1964,7 @@
                 </div>
                 <div className="overflow-hidden">
                   <h1 className="text-xs font-black tracking-tight leading-none truncate max-w-[130px]">{storeSettings.name}</h1>
-                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{isDemoMode ? 'Demo' : currentUser.role}</span>
+                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{activeProfile.isDemo ? 'Demo' : currentUser.role}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -2141,11 +1977,11 @@
                 </button>
                 <button onClick={() => setShowRoleSwitcher(true)} className={`px-2 py-1.5 rounded-xl text-[10px] font-bold border ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-[#00d2d3]' : 'bg-slate-100 border-slate-200'}`}>Role</button>
                 <button 
-                  onClick={() => setShowLogoutConfirm(true)} 
-                  className="p-2 text-slate-400 hover:text-rose-400 bg-slate-800/40 rounded-xl" 
-                  title="Keluar"
+                  onClick={() => setShowProfileSwitcher(true)} 
+                  className="p-2 text-slate-300 bg-slate-800/60 rounded-xl" 
+                  title="Ganti Toko"
                 >
-                  <Icon name="log-out" className="w-4 h-4" />
+                  <Icon name="users" className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -2155,6 +1991,7 @@
               {activeTab === 'pos' && renderPOS()}
               {activeTab === 'reports' && currentUser.role === 'owner' && renderReports()}
 
+              {}
               {activeTab === 'inventory' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className={`p-4 sm:p-6 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 ${
@@ -2234,6 +2071,7 @@
                 </div>
               )}
 
+              {}
               {activeTab === 'customers' && currentUser.role !== 'kasir' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className={`p-4 sm:p-6 rounded-3xl border flex justify-between items-center ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
@@ -2314,27 +2152,25 @@
 
               {activeTab === 'settings' && currentUser.role === 'owner' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-4xl mx-auto space-y-4">
-                  {/* Status Akun & Cloud */}
+                  {/* Status Penyimpanan Browser */}
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <h3 className="font-extrabold text-sm flex items-center gap-2">
-                      <Icon name="cloud" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Cloud Database
+                      <Icon name="database" className="w-4 h-4 text-[#00d2d3]"/> Status Penyimpanan Browser (Chrome / Safari)
                     </h3>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-2xl bg-[#21254d]/50 border border-[#2a2f60]">
                       <div>
                         <p className="text-xs font-bold">
-                          {authUser ? `Terhubung: ${authUser.email}` : 'Akun Mode Demo (Tamu)'}
+                          Akun Aktif: {activeProfile.name} {activeProfile.isDemo ? '(Demo)' : '(Lokal Permanen)'}
                         </p>
                         <p className="text-[11px] text-slate-400">
-                          {authUser ? `UID Cloud: ${authUser.uid}` : 'Data tersimpan di memori perangkat ini saja.'}
+                          Data disimpan langsung di browser perangkat kasir (100% offline & cepat).
                         </p>
                       </div>
-                      {isDemoMode && (
-                        <button onClick={handleGoogleLogin} className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md">
-                          Hubungkan Google
-                        </button>
-                      )}
+                      <button onClick={() => setShowProfileSwitcher(true)} className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md">
+                        Ganti / Buat Akun Toko
+                      </button>
                     </div>
                   </div>
 
@@ -2357,7 +2193,7 @@
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <h3 className={`font-extrabold text-sm border-b pb-2 ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>Identitas Toko & Nota</h3>
-                    <form onSubmit={(e) => { e.preventDefault(); syncToCloud({ storeSettings }); showToast('Pengaturan toko disimpan!'); }} className="space-y-3 text-xs">
+                    <form onSubmit={(e) => { e.preventDefault(); showToast('Pengaturan toko disimpan!'); }} className="space-y-3 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="font-bold text-slate-400 mb-1 block">Nama Toko *</label>
@@ -2408,6 +2244,7 @@
             </div>
           </div>
 
+          {}
           {scannerModal.isOpen && (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
               <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
@@ -2513,33 +2350,64 @@
             </div>
           )}
 
-          {/* Modal Konfirmasi Logout / Keluar */}
-          {showLogoutConfirm && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className={`rounded-3xl w-full max-w-sm p-6 space-y-4 border shadow-2xl text-center ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white text-slate-800'}`}>
-                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
-                  <Icon name="log-out" className="w-6 h-6"/>
+          {/* Modal Ganti / Tambah Profil Toko Lokal */}
+          {showProfileSwitcher && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-5 space-y-3 border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
+                <div className="flex justify-between items-center">
+                  <h3 className="font-black text-sm flex items-center gap-2"><Icon name="users" className="w-4 h-4 text-[#00d2d3]"/> Akun / Profil Toko</h3>
+                  <button onClick={() => setShowProfileSwitcher(false)}><Icon name="x" className="w-5 h-5 text-slate-400"/></button>
                 </div>
-                <div>
-                  <h3 className="font-black text-base">Konfirmasi Keluar</h3>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {authUser ? `Keluar dari akun Google (${authUser.email})?` : 'Keluar dari sesi Mode Demo?'}
-                  </p>
+                <p className="text-[11px] text-slate-400">Pilih akun toko untuk memuat data lokal yang berbeda:</p>
+                <div className="space-y-2 pt-1 max-h-60 overflow-y-auto">
+                  {profiles.map(p => (
+                    <button 
+                      key={p.id}
+                      onClick={() => handleSwitchProfile(p.id)}
+                      className={`w-full p-3 rounded-2xl border text-left flex justify-between items-center font-bold text-xs transition-all ${
+                        p.id === activeProfileId 
+                          ? 'bg-gradient-to-r from-indigo-600/30 to-purple-600/30 border-indigo-500 text-white' 
+                          : (theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-300' : 'bg-slate-50')
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Icon name={p.isDemo ? "sparkles" : "store"} className={`w-4 h-4 ${p.isDemo ? "text-amber-400" : "text-[#00d2d3]"}`} />
+                        <span>{p.name}</span>
+                      </div>
+                      {p.id === activeProfileId && <span className="text-[10px] text-emerald-400 font-bold">Aktif ✓</span>}
+                    </button>
+                  ))}
                 </div>
-                <div className="grid grid-cols-2 gap-2 pt-2">
+
+                <div className="pt-2 border-t border-slate-700/40">
                   <button 
-                    onClick={() => setShowLogoutConfirm(false)} 
-                    className="py-2.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 text-xs font-bold"
+                    onClick={() => { setShowProfileSwitcher(false); setShowNewProfileModal(true); }}
+                    className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md"
                   >
-                    Batal
-                  </button>
-                  <button 
-                    onClick={handleExecuteLogout} 
-                    className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md"
-                  >
-                    Ya, Keluar
+                    <Icon name="plus" className="w-4 h-4" /> Buat Profil Toko Baru
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Buat Toko Baru */}
+          {showNewProfileModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-5 space-y-3 border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
+                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Buat Profil Toko Baru</h3><button onClick={() => setShowNewProfileModal(false)}><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <form onSubmit={handleCreateNewProfile} className="space-y-3 pt-2">
+                  <input 
+                    type="text" 
+                    required 
+                    autoFocus 
+                    placeholder="Nama Toko (Contoh: Cabang 2)..." 
+                    value={newProfileName} 
+                    onChange={(e) => setNewProfileName(e.target.value)} 
+                    className={`w-full p-3 border rounded-2xl text-xs font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} 
+                  />
+                  <button type="submit" className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl text-xs shadow-md">Simpan & Buka Toko</button>
+                </form>
               </div>
             </div>
           )}
