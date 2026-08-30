@@ -349,7 +349,7 @@
       const fileInputRef = useRef(null);
       const isRemoteUpdatingRef = useRef(false);
       const lastSavedStateRef = useRef(null); // Ref baru untuk mencegat overwrite saat reload
-      const lastLocalUpdateTimestampRef = useRef(loadFromLocal(`${userStoragePrefix}_last_ts`, Date.now()));
+      const lastLocalUpdateTimestampRef = useRef(loadFromLocal(`${userStoragePrefix}_last_ts`, 0)); // Ubah dari Date.now() menjadi 0
       const mqttClientRef = useRef(null);
       const deviceIdRef = useRef(Math.random().toString(36).substring(7));
 
@@ -373,7 +373,7 @@
         setDraftOrders(savedDrafts);
         setRolePasswords(savedPass);
 
-        lastLocalUpdateTimestampRef.current = loadFromLocal(`${prefix}_last_ts`, Date.now());
+        lastLocalUpdateTimestampRef.current = loadFromLocal(`${prefix}_last_ts`, 0); // Ubah dari Date.now() menjadi 0
         
         // Pasang pelindung ref agar useEffect tidak mem-broadcast data ini balik ke server saat reload
         lastSavedStateRef.current = JSON.stringify({
@@ -432,11 +432,23 @@
                 const incomingTs = payload.ts || 0;
                 const localTs = lastLocalUpdateTimestampRef.current || 0;
 
-                if (incomingTs > localTs) {
+                // Terima update jika timestamp lebih baru, ATAU jika ini balasan langsung (isResponse) dan timestamp setara
+                if (incomingTs > localTs || (payload.isResponse && incomingTs >= localTs)) {
                   isRemoteUpdatingRef.current = true;
                   lastLocalUpdateTimestampRef.current = incomingTs;
                   saveToLocal(`${userStoragePrefix}_last_ts`, incomingTs);
 
+                  // [KRITIKAL] Simpan secara eksplisit ke LocalStorage di sini agar data kebal terhadap Reload halaman (F5)
+                  if (incomingData.storeSettings) saveToLocal(`${userStoragePrefix}_settings`, incomingData.storeSettings);
+                  if (incomingData.products) saveToLocal(`${userStoragePrefix}_products`, incomingData.products);
+                  if (incomingData.transactions) saveToLocal(`${userStoragePrefix}_transactions`, incomingData.transactions);
+                  if (incomingData.customers) saveToLocal(`${userStoragePrefix}_customers`, incomingData.customers);
+                  if (incomingData.suppliers) saveToLocal(`${userStoragePrefix}_suppliers`, incomingData.suppliers);
+                  if (incomingData.expenses) saveToLocal(`${userStoragePrefix}_expenses`, incomingData.expenses);
+                  if (incomingData.draftOrders) saveToLocal(`${userStoragePrefix}_drafts`, incomingData.draftOrders);
+                  if (incomingData.rolePasswords) saveToLocal(`${userStoragePrefix}_passwords`, incomingData.rolePasswords);
+
+                  // Update React State
                   if (incomingData.storeSettings) setStoreSettings(incomingData.storeSettings);
                   if (incomingData.products) setProducts(incomingData.products);
                   if (incomingData.transactions) setTransactions(incomingData.transactions);
@@ -494,6 +506,7 @@
           type: 'STORE_STATE_UPDATE',
           senderId: deviceIdRef.current,
           ts: currentTs,
+          isResponse: isResponseToRequest, // Tambahkan flag respon agar perangkat penerima mau menerima data dengan timestamp yang sama
           data: {
             storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords
           }
