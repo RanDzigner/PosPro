@@ -348,9 +348,39 @@
       const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
       const fileInputRef = useRef(null);
       const isRemoteUpdatingRef = useRef(false);
+      const lastSavedStateRef = useRef(null); // Ref baru untuk mencegat overwrite saat reload
       const lastLocalUpdateTimestampRef = useRef(loadFromLocal(`${userStoragePrefix}_last_ts`, Date.now()));
       const mqttClientRef = useRef(null);
       const deviceIdRef = useRef(Math.random().toString(36).substring(7));
+
+      // Fungsi khusus untuk menarik data dari cache dengan aman setiap kali ada pergantian akun
+      const loadStoreDataFromLocal = useCallback((prefix, email = '') => {
+        const savedSettings = loadFromLocal(`${prefix}_settings`, null) || { ...defaultSettings, name: email ? `Toko ${email.split('@')[0].toUpperCase()}` : 'Toko Saya' };
+        const savedProducts = loadFromLocal(`${prefix}_products`, defaultProducts);
+        const savedTrx = loadFromLocal(`${prefix}_transactions`, []);
+        const savedCust = loadFromLocal(`${prefix}_customers`, []);
+        const savedSupp = loadFromLocal(`${prefix}_suppliers`, []);
+        const savedExp = loadFromLocal(`${prefix}_expenses`, []);
+        const savedDrafts = loadFromLocal(`${prefix}_drafts`, []);
+        const savedPass = loadFromLocal(`${prefix}_passwords`, { owner: 'owner123', admin: 'admin123' });
+
+        setStoreSettings(savedSettings);
+        setProducts(savedProducts);
+        setTransactions(savedTrx);
+        setCustomers(savedCust);
+        setSuppliers(savedSupp);
+        setExpenses(savedExp);
+        setDraftOrders(savedDrafts);
+        setRolePasswords(savedPass);
+
+        lastLocalUpdateTimestampRef.current = loadFromLocal(`${prefix}_last_ts`, Date.now());
+        
+        // Pasang pelindung ref agar useEffect tidak mem-broadcast data ini balik ke server saat reload
+        lastSavedStateRef.current = JSON.stringify({
+            storeSettings: savedSettings, products: savedProducts, transactions: savedTrx,
+            customers: savedCust, suppliers: savedSupp, expenses: savedExp, draftOrders: savedDrafts, rolePasswords: savedPass
+        });
+      }, []);
 
       const showToast = (message, type = 'success') => {
         setToast({ show: true, message, type });
@@ -395,8 +425,8 @@
               if (!payload || payload.senderId === deviceIdRef.current) return; // Abaikan pesan dari diri sendiri
 
               if (payload.type === 'REQUEST_LATEST_STATE') {
-                // Perangkat lain baru buka, kirimkan database kita jika kita punya data lebih baru
-                broadcastCurrentState();
+                // Perangkat lain baru buka, kirimkan database kita TAPI jangan perbarui timestamp 
+                broadcastCurrentState(true);
               } else if (payload.type === 'STORE_STATE_UPDATE') {
                 const incomingData = payload.data;
                 const incomingTs = payload.ts || 0;
@@ -415,6 +445,9 @@
                   if (incomingData.expenses) setExpenses(incomingData.expenses);
                   if (incomingData.draftOrders) setDraftOrders(incomingData.draftOrders);
                   if (incomingData.rolePasswords) setRolePasswords(incomingData.rolePasswords);
+
+                  // Cegah sistem bereaksi menembakkan balik data dari jaringan ini
+                  lastSavedStateRef.current = JSON.stringify(incomingData);
 
                   setLastSyncTime(new Date());
                   setSyncStatusMsg('Data Terupdate dari Perangkat Lain');
@@ -445,38 +478,52 @@
       }, [authSession, isDemoUser, syncKey, userStoragePrefix]);
 
       // Siarkan State Toko ke Seluruh Perangkat PC & HP yang Sedang Terhubung
-      const broadcastCurrentState = useCallback(() => {
+      const broadcastCurrentState = useCallback((isResponseToRequest = false) => {
         if (!authSession || isDemoUser || !mqttClientRef.current || !mqttClientRef.current.connected) return;
 
-        const currentTs = Date.now();
-        lastLocalUpdateTimestampRef.current = currentTs;
-        saveToLocal(`${userStoragePrefix}_last_ts`, currentTs);
+        let currentTs = lastLocalUpdateTimestampRef.current;
+
+        // Jika ini adalah aktivitas kasir murni (bukan merespon perangkat baru loading), perbarui timestamp
+        if (!isResponseToRequest) {
+          currentTs = Date.now();
+          lastLocalUpdateTimestampRef.current = currentTs;
+          saveToLocal(`${userStoragePrefix}_last_ts`, currentTs);
+        }
 
         const storePayload = {
           type: 'STORE_STATE_UPDATE',
           senderId: deviceIdRef.current,
           ts: currentTs,
           data: {
-            storeSettings,
-            products,
-            transactions,
-            customers,
-            suppliers,
-            expenses,
-            draftOrders,
-            rolePasswords
+            storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords
           }
         };
 
         const topic = `pospro/store_channel/${syncKey}`;
         mqttClientRef.current.publish(topic, JSON.stringify(storePayload), { qos: 1 });
         setLastSyncTime(new Date());
-        setSyncStatusMsg('Tersinkronisasi Real-Time');
+        setSyncStatusMsg(isResponseToRequest ? 'Mengirim Data ke Perangkat Lain' : 'Tersinkronisasi Real-Time');
       }, [authSession, isDemoUser, syncKey, userStoragePrefix, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
 
       // Simpan Perubahan ke Cache Lokal & Picu Broadcast ke PC/HP
       useEffect(() => {
         if (!authSession) return;
+        
+        const currentStateStr = JSON.stringify({ storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords });
+        
+        // Abaikan penyimpanan & broadcast pada saat baru pertama kali load/reload
+        if (lastSavedStateRef.current === null) {
+          lastSavedStateRef.current = currentStateStr;
+          return; 
+        }
+
+        // Cek jika tidak ada perubahan data murni, hentikan (mencegah loop)
+        if (lastSavedStateRef.current === currentStateStr) {
+          return;
+        }
+
+        lastSavedStateRef.current = currentStateStr;
+
         saveToLocal(`${userStoragePrefix}_settings`, storeSettings);
         saveToLocal(`${userStoragePrefix}_products`, products);
         saveToLocal(`${userStoragePrefix}_transactions`, transactions);
@@ -488,7 +535,7 @@
 
         if (!isDemoUser && !isRemoteUpdatingRef.current) {
           const timer = setTimeout(() => {
-            broadcastCurrentState();
+            broadcastCurrentState(false);
           }, 600);
           return () => clearTimeout(timer);
         }
@@ -520,6 +567,10 @@
         };
 
         setTimeout(() => {
+          // Tarik data dengan aman SEBELUM auth session diaktifkan untuk mencegah overwrite memory
+          const newUserPrefix = `pospro_data_${storeSyncKey}`;
+          loadStoreDataFromLocal(newUserPrefix, email);
+
           setAuthSession(userObj);
           if (loginForm.rememberMe) {
             saveToLocal('pospro_cloud_user', userObj);
@@ -536,6 +587,9 @@
           syncKey: 'demo_vault',
           isDemo: true
         };
+        
+        loadStoreDataFromLocal('pospro_data_demo_vault', demoUser.email);
+        
         setAuthSession(demoUser);
         saveToLocal('pospro_cloud_user', demoUser);
         showToast('Masuk Mode Demo (Uji Coba Cepat)');
@@ -544,6 +598,7 @@
       const handleLogout = () => {
         localStorage.removeItem('pospro_cloud_user');
         setAuthSession(null);
+        lastSavedStateRef.current = null;
         showToast('Berhasil keluar akun.');
       };
 
@@ -1328,7 +1383,7 @@
               <div className="flex items-center gap-2">
                 <button 
                   onClick={() => {
-                    broadcastCurrentState();
+                    broadcastCurrentState(true);
                     showToast('⚡ Mengirim sinyal sinkronisasi ke seluruh perangkat!');
                   }}
                   className="px-3 py-1.5 bg-[#21254d] hover:bg-indigo-600 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer shrink-0"
