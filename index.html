@@ -633,7 +633,8 @@
         continuousMode: true,
         lastScanned: null,
         errorMsg: '',
-        isLoadingCamera: false
+        isLoadingCamera: false,
+        feedback: null
       });
       const scannerInstanceRef = useRef(null);
       const lastScanTimeRef = useRef(0);
@@ -791,7 +792,8 @@
           ...prev,
           isOpen: false,
           errorMsg: '',
-          isLoadingCamera: false
+          isLoadingCamera: false,
+          feedback: null
         }));
       }, []);
 
@@ -800,23 +802,42 @@
         const cleanCode = String(decodedText).trim().toUpperCase();
         
         const now = Date.now();
-        if (now - lastScanTimeRef.current < 1400) return;
+        if (now - lastScanTimeRef.current < 1200) return;
         lastScanTimeRef.current = now;
         playScanBeep();
-
-        setScannerModal(prev => ({ ...prev, lastScanned: cleanCode }));
 
         if (scannerModal.target === 'product_form') {
           const existing = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (existing && !editingProduct) {
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'warning',
+                title: '⚠️ BARANG SUDAH ADA!',
+                desc: `Barcode ${cleanCode} sudah terdaftar untuk produk "${existing.name}".`,
+                code: cleanCode
+              }
+            }));
             setEditingProduct(existing);
             setProductForm(existing);
-            showToast(`⚠️ Barang sudah ada! (Memuat data ${existing.name})`, 'error');
+            showToast(`⚠️ Barang sudah ada! (${existing.name})`, 'error');
+            setTimeout(() => closeScannerModal(), 1400);
           } else {
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'success',
+                title: '✅ BARCODE DITERIMA',
+                desc: `SKU ${cleanCode} berhasil dimasukkan ke form barang.`,
+                code: cleanCode
+              }
+            }));
             setProductForm(prev => ({ ...prev, sku: cleanCode }));
             showToast(`SKU Barcode ${cleanCode} berhasil dimasukkan!`);
+            setTimeout(() => closeScannerModal(), 800);
           }
-          closeScannerModal();
         } else if (scannerModal.target === 'inventory_restock') {
           const matchedIndex = products.findIndex(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (matchedIndex !== -1) {
@@ -828,22 +849,73 @@
               stock: newStock
             };
             setProducts(updatedProducts);
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'success',
+                title: '✅ STOK DITAMBAHKAN (+1)',
+                desc: `"${updatedProducts[matchedIndex].name}" • Total Stok Sekarang: ${newStock}`,
+                code: cleanCode
+              }
+            }));
             showToast(`✅ +1 Stok "${updatedProducts[matchedIndex].name}" (Total: ${newStock})`);
             if (!scannerModal.continuousMode) closeScannerModal();
           } else {
-            showToast(`⚠️ Barang belum terdaftar! Membuka form...`, 'error');
-            setEditingProduct(null);
-            setProductForm({ sku: cleanCode, name: '', costPrice: '', price: '', packPrice: '', stock: 1, category: 'Umum', supplier: '' });
-            setIsProductModalOpen(true);
-            closeScannerModal();
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'error',
+                title: '⚠️ BARANG BELUM TERDAFTAR!',
+                desc: `Kode ${cleanCode} tidak ditemukan di database produk toko.`,
+                code: cleanCode,
+                action: 'create_product'
+              }
+            }));
+            showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
           }
         } else {
           const matchedProduct = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (matchedProduct) {
             const added = addToCart(matchedProduct);
-            if (added) showToast(`+1 ${matchedProduct.name} (${cleanCode})!`);
+            if (added) {
+              setScannerModal(prev => ({
+                ...prev,
+                lastScanned: cleanCode,
+                feedback: {
+                  type: 'success',
+                  title: '✅ MASUK KERANJANG (+1)',
+                  desc: `${matchedProduct.name} • ${formatMoney(matchedProduct.price)}`,
+                  code: cleanCode
+                }
+              }));
+              showToast(`+1 ${matchedProduct.name} (${cleanCode})!`);
+            } else {
+              setScannerModal(prev => ({
+                ...prev,
+                lastScanned: cleanCode,
+                feedback: {
+                  type: 'warning',
+                  title: '⚠️ MAKSIMAL STOK / HABIS',
+                  desc: `Stok ${matchedProduct.name} tidak mencukupi untuk ditambah lagi.`,
+                  code: cleanCode
+                }
+              }));
+            }
             if (!scannerModal.continuousMode) closeScannerModal();
           } else {
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'error',
+                title: '⚠️ BARANG BELUM TERDAFTAR!',
+                desc: `Kode barcode ${cleanCode} belum dimasukkan ke data barang toko.`,
+                code: cleanCode,
+                action: 'create_product'
+              }
+            }));
             showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
           }
         }
@@ -927,7 +999,8 @@
           continuousMode: target === 'pos' || target === 'inventory_restock',
           lastScanned: null,
           errorMsg: '',
-          isLoadingCamera: true
+          isLoadingCamera: true,
+          feedback: null
         });
         setTimeout(() => startLiveCamera(), 100);
       };
@@ -2528,9 +2601,53 @@
                 </div>
 
                 <div className="p-4 bg-[#181b3b] border-t border-[#2a2f60] text-white space-y-3 shrink-0">
-                  {scannerModal.lastScanned && (
+                  {scannerModal.feedback ? (
+                    <div className={`p-3 rounded-2xl border text-xs flex items-start gap-3 animate-in zoom-in duration-200 shadow-xl ${
+                      scannerModal.feedback.type === 'error'
+                        ? 'bg-rose-950/90 border-rose-500 text-rose-200'
+                        : scannerModal.feedback.type === 'warning'
+                        ? 'bg-amber-950/90 border-amber-500 text-amber-200'
+                        : 'bg-emerald-950/90 border-emerald-500 text-emerald-200'
+                    }`}>
+                      <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${
+                        scannerModal.feedback.type === 'error' 
+                          ? 'bg-rose-500/20 text-rose-400' 
+                          : scannerModal.feedback.type === 'warning' 
+                          ? 'bg-amber-500/20 text-amber-400' 
+                          : 'bg-emerald-500/20 text-emerald-400'
+                      }`}>
+                        <Icon name={scannerModal.feedback.type === 'error' ? 'alert-triangle' : scannerModal.feedback.type === 'warning' ? 'alert-circle' : 'check-circle'} className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-black text-xs sm:text-sm tracking-tight">{scannerModal.feedback.title}</p>
+                        <p className="text-[11px] opacity-90 mt-0.5 leading-snug">{scannerModal.feedback.desc}</p>
+                        <p className="text-[10px] font-mono opacity-70 mt-1">Barcode: {scannerModal.feedback.code}</p>
+                        
+                        {scannerModal.feedback.action === 'create_product' && (
+                          <button
+                            onClick={() => {
+                              const codeToRegister = scannerModal.feedback.code;
+                              closeScannerModal();
+                              setEditingProduct(null);
+                              setProductForm({ sku: codeToRegister, name: '', costPrice: '', price: '', packPrice: '', stock: 1, category: 'Umum', supplier: '' });
+                              setIsProductModalOpen(true);
+                            }}
+                            className="mt-2.5 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md transition-all cursor-pointer active:scale-95"
+                          >
+                            <Icon name="plus" className="w-3.5 h-3.5" />
+                            <span>+ Daftarkan Barang Baru Ini</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ) : scannerModal.lastScanned ? (
                     <div className="p-2 bg-cyan-950/80 border border-cyan-700 text-[#00d2d3] rounded-xl text-center text-xs font-bold animate-in zoom-in">
                       ⚡ Terdeteksi: <span className="font-mono text-white ml-1">{scannerModal.lastScanned}</span>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-center text-[11px] text-slate-400 flex items-center justify-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+                      <span>Arahkan barcode barang tepat ke kotak bidik laser</span>
                     </div>
                   )}
 
