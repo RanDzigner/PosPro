@@ -107,10 +107,8 @@
       display: none !important;
     }
 
-    /* Gradient Glowing effects */
     .glow-cyan { box-shadow: 0 0 20px -5px rgba(0, 210, 211, 0.4); }
-    .glow-pink { box-shadow: 0 0 20px -5px rgba(255, 75, 139, 0.4); }
-    .glow-purple { box-shadow: 0 0 20px -5px rgba(139, 92, 246, 0.4); }
+    .glow-indigo { box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.5); }
   </style>
 </head>
 <body class="bg-[#0f1228] text-slate-100 antialiased select-none dark">
@@ -138,7 +136,6 @@
 
     const { useState, useEffect, useMemo, useRef, useCallback, Component } = React;
 
-    // Inisialisasi Cloud Database & Auth Configuration
     const appId = typeof __app_id !== 'undefined' ? __app_id : 'pospro-pos-app';
     const firebaseConfig = typeof __firebase_config !== 'undefined' 
       ? JSON.parse(__firebase_config) 
@@ -183,12 +180,6 @@
                   >
                     Muat Ulang Aplikasi
                   </button>
-                  <button 
-                    onClick={() => { localStorage.clear(); window.location.reload(); }} 
-                    className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-rose-300 font-bold rounded-xl text-xs"
-                  >
-                    Reset Memori & Muat Ulang
-                  </button>
                 </div>
               </div>
             </div>
@@ -227,7 +218,6 @@
       }
     };
 
-    // Efek Beep Audio Web API untuk Scanner
     const playScanBeep = () => {
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -248,7 +238,7 @@
     };
 
     const defaultSettings = {
-      name: 'POSPro Analytics', tagline: 'Sistem Kasir & Manajemen UMKM Modern', phone: '081234567890', address: 'Jl. Teknologi No. 1, Jakarta',
+      name: 'POSPro Store', tagline: 'Sistem Kasir & Manajemen UMKM Modern', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
       receiptFooter: 'Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar.', invoicePrefix: 'INV-', taxPercent: 0, defaultDiscount: 0, currency: 'IDR',
       paymentMethods: ['Cash', 'Debit', 'Transfer', 'QRIS', 'E-wallet', 'Hutang']
     };
@@ -261,13 +251,30 @@
       { id: '5', sku: 'BRG-005', name: 'Keripik Kentang Renyah', costPrice: 6000, price: 10000, packPrice: 0, stock: 35, category: 'Snack', supplier: 'Sentra Camilan' }
     ];
 
+    const demoTransactions = [
+      {
+        id: 'INV-829104',
+        date: new Date().toLocaleString('id-ID'),
+        items: [{ product: defaultProducts[0], qty: 2, discountRp: 0 }, { product: defaultProducts[1], qty: 1, discountRp: 0 }],
+        subtotal: 61000, discount: 0, tax: 0, total: 61000, cash: 100000, change: 39000, paymentMethod: 'Cash',
+        customerName: 'Pelanggan Umum', cashier: 'Kasir Utama'
+      },
+      {
+        id: 'INV-731902',
+        date: new Date(Date.now() - 3600000).toLocaleString('id-ID'),
+        items: [{ product: defaultProducts[2], qty: 3, discountRp: 0 }, { product: defaultProducts[4], qty: 2, discountRp: 0 }],
+        subtotal: 38000, discount: 0, tax: 0, total: 38000, cash: 38000, change: 0, paymentMethod: 'QRIS',
+        customerName: 'Budi Santoso', cashier: 'Kasir Utama'
+      }
+    ];
+
     function App() {
-      // Status Autentikasi Pengguna
       const [authUser, setAuthUser] = useState(null);
       const [isAuthLoading, setIsAuthLoading] = useState(true);
       const [isLoggingIn, setIsLoggingIn] = useState(false);
+      const [isDemoMode, setIsDemoMode] = useState(false);
+      const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
-      // Inisialisasi Tema (Dark / Light)
       const [theme, setTheme] = useState('dark');
 
       useEffect(() => {
@@ -303,13 +310,12 @@
       const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
       const [showMobileCartDrawer, setShowMobileCartDrawer] = useState(false);
 
-      // Alias aman agar semua referensi currentUser berjalan lancar
       const currentUser = currentUserRole;
 
       const [authModal, setAuthModal] = useState({ show: false, targetRole: null, password: '' });
       const [rolePasswords, setRolePasswords] = useState({ owner: 'owner123', admin: 'admin123' });
 
-      // State Data Aplikasi (Tersinkronisasi per-User ke Cloud Firestore)
+      // State Data Aplikasi
       const [storeSettings, setStoreSettings] = useState(defaultSettings);
       const [products, setProducts] = useState(defaultProducts);
       const [transactions, setTransactions] = useState([]);
@@ -319,26 +325,26 @@
       const [expenses, setExpenses] = useState([]);
       const [isCloudSyncing, setIsCloudSyncing] = useState(false);
 
-      // Pantau Status Login Pengguna & Token Custom Prioritas
+      // Pantau Status Login Pengguna
       useEffect(() => {
         let isMounted = true;
         const unsubscribe = onAuthStateChanged(auth, async (user) => {
           if (!isMounted) return;
           if (user) {
             setAuthUser(user);
+            setIsDemoMode(false);
             setCurrentUserRole({
               name: user.displayName || user.email?.split('@')[0] || 'Pemilik Toko',
               role: 'owner',
-              avatar: (user.displayName || 'OT').slice(0, 2).toUpperCase()
+              avatar: (user.displayName || user.email || 'OT').slice(0, 2).toUpperCase()
             });
             setIsAuthLoading(false);
           } else {
-            // Cek apakah ada Custom Token bawaan lingkungan
+            // Cek Custom Token jika ada di runtime environment
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
               try {
                 await signInWithCustomToken(auth, __initial_auth_token);
               } catch (err) {
-                console.warn("Auth token fallback to login screen", err);
                 setAuthUser(null);
                 setIsAuthLoading(false);
               }
@@ -355,12 +361,11 @@
         };
       }, []);
 
-      // Realtime Sync Data Cloud Berdasarkan User ID yang Login
       useEffect(() => {
         if (!authUser) return;
 
         const userId = authUser.uid;
-        // Document path pribadi per user: /artifacts/{appId}/users/{userId}/data/main_store_data
+        // Strict path: /artifacts/{appId}/users/{userId}/store_data/main_store_data
         const userStoreDocRef = doc(db, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
 
         const unsubscribeDoc = onSnapshot(userStoreDocRef, (snapshot) => {
@@ -375,9 +380,12 @@
             if (data.expenses) setExpenses(data.expenses);
             if (data.rolePasswords) setRolePasswords(data.rolePasswords);
           } else {
-            // Data baru pertama kali login: Inisialisasi cloud store untuk user ini
-            setDoc(userStoreDocRef, {
-              storeSettings: { ...defaultSettings, name: authUser.displayName ? `Toko ${authUser.displayName}` : 'Toko POSPro' },
+            // Setup awal untuk akun Google baru
+            const initStore = {
+              storeSettings: { 
+                ...defaultSettings, 
+                name: authUser.displayName ? `Toko ${authUser.displayName}` : 'Toko Saya' 
+              },
               products: defaultProducts,
               transactions: [],
               draftOrders: [],
@@ -387,8 +395,14 @@
               rolePasswords: { owner: 'owner123', admin: 'admin123' },
               createdAt: new Date().toISOString(),
               userEmail: authUser.email || '',
-              userName: authUser.displayName || 'Pengguna'
-            }).catch((err) => console.error("Error initial store setup:", err));
+              userName: authUser.displayName || 'Pemilik Toko'
+            };
+
+            setStoreSettings(initStore.storeSettings);
+            setProducts(initStore.products);
+            setTransactions(initStore.transactions);
+
+            setDoc(userStoreDocRef, initStore).catch((err) => console.error("Error initial store setup:", err));
           }
         }, (error) => {
           console.error("Firestore user sync error:", error);
@@ -397,7 +411,6 @@
         return () => unsubscribeDoc();
       }, [authUser]);
 
-      // Helper untuk menyimpan perubahan data ke Firestore pribadi pengguna
       const syncToCloud = useCallback(async (overrides = {}) => {
         if (!authUser) return;
         const userId = authUser.uid;
@@ -435,14 +448,13 @@
           showToast('Berhasil masuk dengan Akun Google!');
         } catch (err) {
           console.error("Google Auth error:", err);
-          // Fallback jika popup terhalang iframe browser
           try {
             if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
               await signInWithCustomToken(auth, __initial_auth_token);
-              showToast('Berhasil masuk akun!');
+              showToast('Berhasil terhubung akun!');
             } else {
               await signInAnonymously(auth);
-              showToast('Masuk sebagai sesi pengguna aman');
+              showToast('Masuk dengan sesi cloud privat');
             }
           } catch (anonErr) {
             showToast('Gagal masuk: ' + (err.message || 'Periksa koneksi'), 'error');
@@ -452,20 +464,41 @@
         }
       };
 
+      // Handle Masuk Mode Demo
+      const handleEnterDemoMode = () => {
+        setIsDemoMode(true);
+        setStoreSettings({ ...defaultSettings, name: 'Toko Demo POSPro' });
+        setProducts(defaultProducts);
+        setTransactions(demoTransactions);
+        setCustomers([
+          { id: 'CUST-001', name: 'Budi Santoso', phone: '081298765432', address: 'Jakarta Selatan', totalTrx: 1, totalSpent: 38000, debt: 0 },
+          { id: 'CUST-002', name: 'Siti Rahma', phone: '085712349988', address: 'Bandung', totalTrx: 0, totalSpent: 0, debt: 50000 }
+        ]);
+        setSuppliers([
+          { id: 'SUP-001', name: 'PT. Kopi Nusantara', contactPerson: 'Hendra', phone: '0811223344', address: 'Jakarta', totalPurchases: 540000, debt: 0 }
+        ]);
+        setExpenses([
+          { id: 'EXP-101', date: new Date().toLocaleDateString('id-ID'), category: 'Listrik', amount: 150000, note: 'Token Listrik Toko' }
+        ]);
+        setCurrentUserRole({ name: 'Kasir Demo', role: 'owner', avatar: 'DM' });
+        showToast('Masuk sebagai Mode Demo! Data siap dicoba.');
+      };
+
       // Handle Logout
-      const handleLogout = async () => {
-        if (window.confirm("Apakah Anda yakin ingin keluar dari akun ini?")) {
-          try {
+      const handleExecuteLogout = async () => {
+        setShowLogoutConfirm(false);
+        try {
+          if (authUser) {
             await signOut(auth);
             setAuthUser(null);
-            showToast('Berhasil keluar akun.');
-          } catch (e) {
-            showToast('Gagal keluar akun', 'error');
           }
+          setIsDemoMode(false);
+          showToast('Berhasil keluar.');
+        } catch (e) {
+          showToast('Gagal keluar akun', 'error');
         }
       };
 
-      // State Kasir
       const [cart, setCart] = useState([]);
       const [discount, setDiscount] = useState(0);
       const [cashReceived, setCashReceived] = useState('');
@@ -524,7 +557,6 @@
       const [supplierPayAmount, setSupplierPayAmount] = useState('');
 
       const [viewingTransaction, setViewingTransaction] = useState(null);
-      const [revenuePeriod, setRevenuePeriod] = useState('today'); 
       const [reportPeriod, setReportPeriod] = useState('month');
 
       const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
@@ -677,10 +709,7 @@
             };
             setProducts(updatedProducts);
             showToast(`✅ +1 Stok "${updatedProducts[matchedIndex].name}" (Total: ${newStock})`);
-            
-            if (typeof google !== 'undefined' && google.script && google.script.run) {
-              google.script.run.updateProduct(updatedProducts);
-            }
+            syncToCloud({ products: updatedProducts });
             if (!scannerModal.continuousMode) closeScannerModal();
           } else {
             showToast(`Barcode "${cleanCode}" belum ada. Membuka form baru...`, 'warning');
@@ -699,7 +728,7 @@
             showToast(`Barcode "${cleanCode}" belum terdaftar!`, 'error');
           }
         }
-      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal]);
+      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal, syncToCloud]);
 
       const handleImageFileScan = async (e) => {
         const file = e.target.files && e.target.files[0];
@@ -907,7 +936,6 @@
         showToast('Transaksi Berhasil Disimpan!');
         setViewingTransaction(newTransaction);
 
-        // Simpan ke Firestore pribadi user
         syncToCloud({ transactions: newTrxList, products: updatedProducts, customers: updatedCustomers });
       };
 
@@ -937,12 +965,10 @@
       };
 
       const handleDeleteProduct = (id) => { 
-        if(window.confirm('Hapus produk ini?')) { 
-          const updatedProducts = products.filter(p => p.id !== id);
-          setProducts(updatedProducts);
-          showToast('Produk dihapus');
-          syncToCloud({ products: updatedProducts });
-        } 
+        const updatedProducts = products.filter(p => p.id !== id);
+        setProducts(updatedProducts);
+        showToast('Produk dihapus');
+        syncToCloud({ products: updatedProducts });
       };
 
       const handleSaveRestock = (e) => {
@@ -1008,11 +1034,9 @@
       };
       
       const handleDeleteCustomer = (id) => { 
-        if (window.confirm('Hapus pelanggan ini?')) { 
-          const updated = customers.filter(c => c.id !== id);
-          setCustomers(updated); if (selectedCustomerPOS === id) setSelectedCustomerPOS(''); showToast('Pelanggan dihapus');
-          syncToCloud({ customers: updated });
-        } 
+        const updated = customers.filter(c => c.id !== id);
+        setCustomers(updated); if (selectedCustomerPOS === id) setSelectedCustomerPOS(''); showToast('Pelanggan dihapus');
+        syncToCloud({ customers: updated });
       };
       
       const handleSaveSupplier = (e) => { 
@@ -1030,11 +1054,9 @@
       };
 
       const handleDeleteSupplier = (id) => { 
-        if (window.confirm('Hapus supplier ini?')) { 
-          const updated = suppliers.filter(s => s.id !== id);
-          setSuppliers(updated); showToast('Supplier dihapus');
-          syncToCloud({ suppliers: updated });
-        } 
+        const updated = suppliers.filter(s => s.id !== id);
+        setSuppliers(updated); showToast('Supplier dihapus');
+        syncToCloud({ suppliers: updated });
       };
 
       const handleSaveExpense = (e) => {
@@ -1047,11 +1069,9 @@
       };
 
       const handleDeleteExpense = (id) => { 
-        if (window.confirm('Hapus pengeluaran ini?')) { 
-          const updated = expenses.filter(e => e.id !== id);
-          setExpenses(updated); showToast('Pengeluaran dihapus');
-          syncToCloud({ expenses: updated });
-        } 
+        const updated = expenses.filter(e => e.id !== id);
+        setExpenses(updated); showToast('Pengeluaran dihapus');
+        syncToCloud({ expenses: updated });
       };
 
       const handlePayCustomerDebt = (e) => { 
@@ -1063,7 +1083,7 @@
       
       const handlePaySupplierDebt = (e) => { 
         e.preventDefault(); const payAmount = Number(supplierPayAmount) || 0; if (payAmount <= 0) { showToast('Masukkan nominal valid', 'error'); return; } if (payAmount > (paymentModalSupplier.debt || 0)) { showToast('Melebihi hutang!', 'error'); return; } 
-        const updated = suppliers.map(s => s.id === paymentModalSupplier.id ? { ...s, debt: (s.debt || 0) - payAmount } : c);
+        const updated = suppliers.map(s => s.id === paymentModalSupplier.id ? { ...s, debt: (s.debt || 0) - payAmount } : s);
         setSuppliers(updated); showToast('Pelunasan hutang dicatat.'); setPaymentModalSupplier(null); setSupplierPayAmount('');
         syncToCloud({ suppliers: updated });
       };
@@ -1159,9 +1179,7 @@
         });
       }, [products, selectedCategory, searchQuery]);
 
-      // Perhitungan & Visualisasi Dasbor Sesuai Gambar Referensi
       const renderDashboard = () => {
-        // Kalkulasi Keuangan
         const totalNilaiPenjualan = transactions.reduce((sum, t) => sum + (t.subtotal || t.total || 0), 0);
         const totalNilaiAkhir = transactions.reduce((sum, t) => sum + (t.total || 0), 0);
         
@@ -1179,11 +1197,10 @@
         const totalPengeluaran = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
         const totalProfit = (totalNilaiAkhir - totalHPP) - totalPengeluaran;
 
-        // Metrik Kategori Donut Charts (Jenis 1: Minuman, Jenis 2: Makanan, Jenis 3: Snack/Lainnya)
         const categoryStats = [
-          { name: 'Jenis 1 (Minuman)', cat: 'Minuman', color: '#ff4b8b', border: '#ff4b8b' },
-          { name: 'Jenis 2 (Makanan)', cat: 'Makanan', color: '#00d2d3', border: '#00d2d3' },
-          { name: 'Jenis 3 (Snack/Umum)', cat: 'Snack', color: '#ff8a3d', border: '#ff8a3d' }
+          { name: 'Jenis 1 (Minuman)', cat: 'Minuman', color: '#ff4b8b' },
+          { name: 'Jenis 2 (Makanan)', cat: 'Makanan', color: '#00d2d3' },
+          { name: 'Jenis 3 (Snack/Umum)', cat: 'Snack', color: '#ff8a3d' }
         ].map((c) => {
           const prodsInCat = products.filter(p => p.category && p.category.toLowerCase().includes(c.cat.toLowerCase()));
           const stock = prodsInCat.reduce((sum, p) => sum + (p.stock || 0), 0);
@@ -1209,12 +1226,10 @@
             total,
             sales,
             percentage,
-            color: c.color,
-            border: c.border
+            color: c.color
           };
         });
 
-        // Metrik Grafik Persediaan Batang
         const productStats = products.slice(0, 10).map((p, idx) => {
           let sold = 0;
           transactions.forEach(t => {
@@ -1244,11 +1259,31 @@
 
         return (
           <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 max-w-7xl mx-auto">
-            
+            {/* Banner Mode Demo jika aktif */}
+            {isDemoMode && (
+              <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-purple-500/20 border border-amber-500/40 p-3 sm:p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-2xl bg-amber-500/30 text-amber-300 flex items-center justify-center shrink-0">
+                    <Icon name="sparkles" className="w-5 h-5"/>
+                  </div>
+                  <div>
+                    <h4 className="text-xs sm:text-sm font-black text-white">Anda Sedang Menggunakan Mode Demo</h4>
+                    <p className="text-[11px] text-amber-200/80">Data tersimpan sementara. Hubungkan akun Google untuk menyimpan data toko Anda ke Cloud.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={handleGoogleLogin} 
+                  className="w-full sm:w-auto px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-md shrink-0"
+                >
+                  <Icon name="cloud" className="w-4 h-4"/>
+                  <span>Simpan ke Akun Google</span>
+                </button>
+              </div>
+            )}
+
             {/* BARIS 1: 3 Donut Chart Kategori & 4 Kotak Metrik KPI */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               
-              {/* Kolom Kiri: 3 Donut Gauges */}
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {categoryStats.map((cat, idx) => {
                   const strokeDashoffset = 283 - (283 * cat.percentage) / 100;
@@ -1266,10 +1301,8 @@
                         </span>
                       </div>
 
-                      {/* Donut Circular Gauge SVG */}
                       <div className="relative w-28 h-28 my-3 flex items-center justify-center">
                         <svg className="w-full h-full -rotate-90" viewBox="0 0 112 112">
-                          {/* Background Circle */}
                           <circle
                             cx="56"
                             cy="56"
@@ -1278,7 +1311,6 @@
                             strokeWidth="12"
                             fill="transparent"
                           />
-                          {/* Circle Progress */}
                           <circle
                             cx="56"
                             cy="56"
@@ -1293,20 +1325,17 @@
                           />
                         </svg>
                         
-                        {/* Percentage Center Text */}
                         <div className="absolute inset-0 flex flex-col items-center justify-center">
                           <span className={`text-xl font-black ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
                             {cat.percentage}%
                           </span>
                         </div>
 
-                        {/* Angka Penunjuk di Sisi Donut */}
                         <span className="absolute -top-1 left-2 text-[9px] font-bold text-slate-400">{cat.stock}</span>
                         <span className="absolute -bottom-1 left-2 text-[9px] font-bold text-slate-400">{cat.sold}</span>
                         <span className="absolute top-1/2 -right-1 -translate-y-1/2 text-[9px] font-bold text-slate-400">{cat.total}</span>
                       </div>
 
-                      {/* Footer Badge Nilai Penjualan */}
                       <div className="w-full mt-1">
                         <div className="w-full py-1.5 px-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-black text-xs shadow-md">
                           {formatMoney(cat.sales)}
@@ -1320,10 +1349,8 @@
                 })}
               </div>
 
-              {/* Kolom Kanan: 4 Kotak KPI Keuangan */}
               <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 
-                {/* Total Nilai Penjualan */}
                 <div className={`p-4 rounded-3xl border flex flex-col justify-between transition-all ${
                   theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-lg' : 'bg-white border-slate-200 shadow-sm'
                 }`}>
@@ -1345,7 +1372,6 @@
                   </div>
                 </div>
 
-                {/* Total Nilai Akhir Penjualan */}
                 <div className={`p-4 rounded-3xl border flex flex-col justify-between transition-all ${
                   theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-lg' : 'bg-white border-slate-200 shadow-sm'
                 }`}>
@@ -1367,7 +1393,6 @@
                   </div>
                 </div>
 
-                {/* Total HPP (Modal) */}
                 <div className={`p-4 rounded-3xl border flex flex-col justify-between transition-all ${
                   theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-lg' : 'bg-white border-slate-200 shadow-sm'
                 }`}>
@@ -1389,7 +1414,6 @@
                   </div>
                 </div>
 
-                {/* Total Profit Bersih */}
                 <div className={`p-4 rounded-3xl border flex flex-col justify-between transition-all ${
                   theme === 'dark' ? 'bg-gradient-to-br from-[#1e1b4b] to-[#181b3b] border-indigo-500/40 text-white shadow-lg' : 'bg-indigo-50 border-indigo-200'
                 }`}>
@@ -1418,7 +1442,6 @@
             {/* BARIS 2: Grafik Persediaan Barang & Grafik Barang Laku Horizontal */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               
-              {/* Grafik Persediaan Barang */}
               <div className={`lg:col-span-7 p-4 sm:p-6 rounded-3xl border flex flex-col justify-between transition-all ${
                 theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm text-slate-800'
               }`}>
@@ -1428,7 +1451,6 @@
                     <h3 className="font-extrabold text-sm sm:text-base tracking-tight">Grafik Persediaan Barang</h3>
                   </div>
 
-                  {/* Legenda Warna */}
                   <div className="flex items-center gap-3 text-[10px] font-bold">
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#00d2d3]"></span> Jumlah Awal</span>
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#ff8a3d]"></span> Terjual</span>
@@ -1436,7 +1458,6 @@
                   </div>
                 </div>
 
-                {/* Container Grafik Batang */}
                 <div className="h-60 sm:h-72 flex items-end gap-2 sm:gap-4 pt-4 border-b border-slate-700/50 pb-2 overflow-x-auto no-scrollbar">
                   {productStats.map((item, idx) => {
                     const hInitial = (item.initial / maxBarVal) * 100;
@@ -1446,19 +1467,16 @@
                     return (
                       <div key={idx} className="flex-1 min-w-[50px] flex flex-col items-center h-full justify-end group">
                         <div className="flex items-end justify-center gap-1 w-full h-[82%]">
-                          {/* Awal (Cyan) */}
                           <div className="w-2.5 sm:w-3.5 bg-[#00d2d3] rounded-t-md relative flex justify-center group-hover:brightness-110 transition-all" style={{ height: `${hInitial}%`, minHeight: '4px' }}>
                             <span className="opacity-0 group-hover:opacity-100 absolute -top-5 text-[9px] font-bold text-[#00d2d3] bg-[#0f1228] px-1 rounded transition-opacity">
                               {item.initial}
                             </span>
                           </div>
-                          {/* Terjual (Orange) */}
                           <div className="w-2.5 sm:w-3.5 bg-[#ff8a3d] rounded-t-md relative flex justify-center group-hover:brightness-110 transition-all" style={{ height: `${hSold}%`, minHeight: '4px' }}>
                             <span className="opacity-0 group-hover:opacity-100 absolute -top-5 text-[9px] font-bold text-[#ff8a3d] bg-[#0f1228] px-1 rounded transition-opacity">
                               {item.sold}
                             </span>
                           </div>
-                          {/* Akhir (Pink) */}
                           <div className="w-2.5 sm:w-3.5 bg-[#ff4b8b] rounded-t-md relative flex justify-center group-hover:brightness-110 transition-all" style={{ height: `${hRemaining}%`, minHeight: '4px' }}>
                             <span className="opacity-0 group-hover:opacity-100 absolute -top-5 text-[9px] font-bold text-[#ff4b8b] bg-[#0f1228] px-1 rounded transition-opacity">
                               {item.remaining}
@@ -1475,7 +1493,6 @@
                 </div>
               </div>
 
-              {/* Grafik Barang Laku Horizontal */}
               <div className={`lg:col-span-5 p-4 sm:p-6 rounded-3xl border flex flex-col justify-between transition-all ${
                 theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm text-slate-800'
               }`}>
@@ -1520,6 +1537,90 @@
           </div>
         );
       };
+
+      if (isAuthLoading) {
+        return (
+          <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-6 text-center">
+            <div className="w-12 h-12 border-4 border-indigo-500/30 border-t-[#00d2d3] rounded-full animate-spin mb-4"></div>
+            <p className="text-sm font-bold text-slate-300">Menghubungkan ke POSPro...</p>
+          </div>
+        );
+      }
+
+      if (!authUser && !isDemoMode) {
+        return (
+          <div className="min-h-screen bg-[#0f1228] text-white flex items-center justify-center p-4 relative overflow-hidden">
+            {/* Background Glow Blobs */}
+            <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none -translate-x-1/2 -translate-y-1/2"></div>
+            <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none translate-x-1/2 translate-y-1/2"></div>
+            
+            <div className="w-full max-w-md bg-[#181b3b] border border-[#2a2f60] rounded-3xl p-6 sm:p-8 shadow-2xl relative z-10 space-y-6">
+              <div className="text-center space-y-2">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center mx-auto shadow-lg glow-indigo">
+                  <Icon name="store" className="w-7 h-7 text-white"/>
+                </div>
+                <h1 className="text-2xl font-black tracking-tight text-white pt-1">POSPro Modern</h1>
+                <p className="text-xs text-slate-400">Sistem Kasir, Manajemen Stok & Analisis Bisnis Toko</p>
+              </div>
+
+              {/* Card List Keunggulan */}
+              <div className="bg-[#21254d]/60 border border-[#2a2f60] rounded-2xl p-3.5 space-y-2 text-xs">
+                <div className="flex items-center gap-2.5 text-slate-300">
+                  <Icon name="check-circle-2" className="w-4 h-4 text-[#00d2d3] shrink-0" />
+                  <span>Database Cloud privat & terisolasi per akun</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-slate-300">
+                  <Icon name="check-circle-2" className="w-4 h-4 text-[#00d2d3] shrink-0" />
+                  <span>Scan barcode langsung via kamera HP</span>
+                </div>
+                <div className="flex items-center gap-2.5 text-slate-300">
+                  <Icon name="check-circle-2" className="w-4 h-4 text-[#00d2d3] shrink-0" />
+                  <span>Dukungan scanner USB/Bluetooth di PC/Laptop</span>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-1">
+                <button
+                  onClick={handleGoogleLogin}
+                  disabled={isLoggingIn}
+                  className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-extrabold text-xs sm:text-sm flex items-center justify-center gap-3 shadow-xl active:scale-[0.98] transition-all disabled:opacity-60"
+                >
+                  {isLoggingIn ? (
+                    <div className="w-5 h-5 border-2 border-slate-900 border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <svg className="w-5 h-5" viewBox="0 0 24 24">
+                      <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                      <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                      <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                      <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                    </svg>
+                  )}
+                  <span>Masuk dengan Akun Google</span>
+                </button>
+
+                <div className="relative flex items-center justify-center py-1">
+                  <div className="border-t border-[#2a2f60] w-full"></div>
+                  <span className="bg-[#181b3b] px-3 text-[11px] font-bold text-slate-400 uppercase tracking-widest absolute">atau</span>
+                </div>
+
+                <button
+                  onClick={handleEnterDemoMode}
+                  className="w-full py-3 px-4 bg-[#21254d] hover:bg-[#282d5e] text-slate-200 border border-[#2a2f60] hover:border-indigo-500/50 rounded-2xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-all"
+                >
+                  <Icon name="sparkles" className="w-4 h-4 text-amber-400" />
+                  <span>Coba Gratis Mode Demo (Tanpa Login)</span>
+                </button>
+              </div>
+
+              <div className="pt-2 text-center">
+                <p className="text-[10px] text-slate-400">
+                  Data kasir Anda dienkripsi aman dan hanya dapat diakses oleh akun Anda sendiri.
+                </p>
+              </div>
+            </div>
+          </div>
+        );
+      }
 
       const renderCartContent = () => {
         const isPaymentExact = paymentMethod !== 'Cash' && paymentMethod !== 'Hutang';
@@ -1799,7 +1900,6 @@
                 </div>
               </div>
 
-              {/* Floating Bottom Cart Bar di HP */}
               {cart.length > 0 && (
                 <div className="lg:hidden fixed bottom-16 left-3 right-3 z-30 animate-in fade-in slide-in-from-bottom duration-200">
                   <div onClick={() => setShowMobileCartDrawer(true)} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-3.5 rounded-3xl shadow-2xl flex items-center justify-between cursor-pointer border border-indigo-400/30">
@@ -1911,7 +2011,7 @@
             </div>
           )}
 
-          {/* Sidebar Desktop Bertema Sesuai Gambar Referensi */}
+          {/* Sidebar Desktop */}
           <div className={`w-64 flex-col hidden lg:flex shadow-2xl z-30 border-r transition-all ${
             theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-slate-300' : 'bg-white border-slate-200 text-slate-600'
           }`}>
@@ -1924,7 +2024,12 @@
                   <h1 className={`text-base font-black tracking-tight leading-none ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
                     {storeSettings.name}
                   </h1>
-                  <p className="text-[10px] font-bold text-[#00d2d3] uppercase tracking-widest mt-1">POS & Analytics</p>
+                  <div className="flex items-center gap-1 mt-1">
+                    <p className="text-[10px] font-bold text-[#00d2d3] uppercase tracking-widest">
+                      {isDemoMode ? 'MODE DEMO' : 'CLOUD SYNC'}
+                    </p>
+                    {isCloudSyncing && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping"></span>}
+                  </div>
                 </div>
               </div>
             </div>
@@ -1942,26 +2047,30 @@
                     <p className={`font-bold text-xs truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{currentUser.name}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold uppercase">{currentUser.role}</span>
-                      {authUser?.email && (
+                      {authUser?.email ? (
                         <span className="text-[9px] text-slate-400 truncate max-w-[80px]" title={authUser.email}>
                           {authUser.email.split('@')[0]}
                         </span>
-                      )}
+                      ) : isDemoMode ? (
+                        <span className="text-[9px] text-amber-400 font-bold">Tamu</span>
+                      ) : null}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
                   <button onClick={() => setShowRoleSwitcher(!showRoleSwitcher)} className="text-[10px] text-[#00d2d3] hover:underline font-bold px-1 py-0.5">Role</button>
-                  {authUser && (
-                    <button onClick={handleLogout} className="text-slate-400 hover:text-rose-400 p-1" title="Keluar Akun">
-                      <Icon name="log-out" className="w-3.5 h-3.5" />
-                    </button>
-                  )}
+                  <button 
+                    onClick={() => setShowLogoutConfirm(true)} 
+                    className="text-slate-400 hover:text-rose-400 p-1" 
+                    title={isDemoMode ? "Keluar Demo" : "Keluar Akun Google"}
+                  >
+                    <Icon name="log-out" className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
             </div>
 
-            {/* Navigasi Pill Buttons Sesuai Desain Gambar */}
+            {/* Navigasi Menu */}
             <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto pt-2">
               {[
                 { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard Data', roles: ['owner', 'admin'] },
@@ -1992,7 +2101,6 @@
               })}
             </nav>
 
-            {/* Theme Switcher Toggle di Bawah Sidebar */}
             <div className={`p-4 border-t ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-200'}`}>
               <button 
                 onClick={toggleTheme}
@@ -2009,7 +2117,6 @@
             </div>
           </div>
 
-          {/* Area Konten Utama */}
           <div className="flex-1 flex flex-col h-screen overflow-hidden">
             {/* Topbar Mobile */}
             <div className={`lg:hidden px-4 py-3 flex items-center justify-between shadow-md z-20 shrink-0 border-b ${
@@ -2021,7 +2128,7 @@
                 </div>
                 <div className="overflow-hidden">
                   <h1 className="text-xs font-black tracking-tight leading-none truncate max-w-[130px]">{storeSettings.name}</h1>
-                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{currentUser.role}</span>
+                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{isDemoMode ? 'Demo' : currentUser.role}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -2033,15 +2140,16 @@
                   <Icon name={theme === 'dark' ? "sun" : "moon"} className="w-4 h-4" />
                 </button>
                 <button onClick={() => setShowRoleSwitcher(true)} className={`px-2 py-1.5 rounded-xl text-[10px] font-bold border ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-[#00d2d3]' : 'bg-slate-100 border-slate-200'}`}>Role</button>
-                {authUser && (
-                  <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-rose-400 bg-slate-800/40 rounded-xl" title="Keluar Akun">
-                    <Icon name="log-out" className="w-4 h-4" />
-                  </button>
-                )}
+                <button 
+                  onClick={() => setShowLogoutConfirm(true)} 
+                  className="p-2 text-slate-400 hover:text-rose-400 bg-slate-800/40 rounded-xl" 
+                  title="Keluar"
+                >
+                  <Icon name="log-out" className="w-4 h-4" />
+                </button>
               </div>
             </div>
 
-            {/* Tampilan Tab Aktif */}
             <div className="flex-1 overflow-y-auto">
               {activeTab === 'dashboard' && currentUser.role !== 'kasir' && renderDashboard()}
               {activeTab === 'pos' && renderPOS()}
@@ -2206,6 +2314,30 @@
 
               {activeTab === 'settings' && currentUser.role === 'owner' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-4xl mx-auto space-y-4">
+                  {/* Status Akun & Cloud */}
+                  <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
+                    theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+                  }`}>
+                    <h3 className="font-extrabold text-sm flex items-center gap-2">
+                      <Icon name="cloud" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Cloud Database
+                    </h3>
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-2xl bg-[#21254d]/50 border border-[#2a2f60]">
+                      <div>
+                        <p className="text-xs font-bold">
+                          {authUser ? `Terhubung: ${authUser.email}` : 'Akun Mode Demo (Tamu)'}
+                        </p>
+                        <p className="text-[11px] text-slate-400">
+                          {authUser ? `UID Cloud: ${authUser.uid}` : 'Data tersimpan di memori perangkat ini saja.'}
+                        </p>
+                      </div>
+                      {isDemoMode && (
+                        <button onClick={handleGoogleLogin} className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md">
+                          Hubungkan Google
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
                   {/* Backup & Restore */}
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
@@ -2225,7 +2357,7 @@
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <h3 className={`font-extrabold text-sm border-b pb-2 ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>Identitas Toko & Nota</h3>
-                    <form onSubmit={(e) => { e.preventDefault(); showToast('Pengaturan toko disimpan!'); }} className="space-y-3 text-xs">
+                    <form onSubmit={(e) => { e.preventDefault(); syncToCloud({ storeSettings }); showToast('Pengaturan toko disimpan!'); }} className="space-y-3 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="font-bold text-slate-400 mb-1 block">Nama Toko *</label>
@@ -2245,7 +2377,7 @@
               )}
             </div>
 
-            {/* Bottom Nav Mobile Modern */}
+            {/* Bottom Nav Mobile */}
             <div className={`lg:hidden flex items-center justify-around py-2 px-2 z-30 pb-safe shrink-0 shadow-2xl border-t ${
               theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60]' : 'bg-white border-slate-200'
             }`}>
@@ -2276,7 +2408,6 @@
             </div>
           </div>
 
-          {/* MODAL SCANNER KAMERA BARCODE DENGAN LASER FUTURISTIK */}
           {scannerModal.isOpen && (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
               <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
@@ -2382,15 +2513,46 @@
             </div>
           )}
 
+          {/* Modal Konfirmasi Logout / Keluar */}
+          {showLogoutConfirm && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className={`rounded-3xl w-full max-w-sm p-6 space-y-4 border shadow-2xl text-center ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white text-slate-800'}`}>
+                <div className="w-12 h-12 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center mx-auto">
+                  <Icon name="log-out" className="w-6 h-6"/>
+                </div>
+                <div>
+                  <h3 className="font-black text-base">Konfirmasi Keluar</h3>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {authUser ? `Keluar dari akun Google (${authUser.email})?` : 'Keluar dari sesi Mode Demo?'}
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <button 
+                    onClick={() => setShowLogoutConfirm(false)} 
+                    className="py-2.5 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 text-xs font-bold"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={handleExecuteLogout} 
+                    className="py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md"
+                  >
+                    Ya, Keluar
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Modal Ganti Role */}
           {showRoleSwitcher && (
             <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
               <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-5 space-y-3 border ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
-                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Ganti Akun Pengguna</h3><button onClick={() => setShowRoleSwitcher(false)}><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Ganti Peran Pengguna</h3><button onClick={() => setShowRoleSwitcher(false)}><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
                 <div className="space-y-2 pt-2">
-                  <button onClick={() => handleRoleSwitchRequest({ name: 'Bapak Owner', role: 'owner', avatar: 'BO' })} className={`w-full p-3 rounded-2xl border text-left flex justify-between items-center font-bold text-xs ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50'}`}><span>👑 Owner (Akses Penuh)</span><Icon name="shield-check" className="w-4 h-4 text-indigo-400"/></button>
-                  <button onClick={() => handleRoleSwitchRequest({ name: 'Ibu Admin', role: 'admin', avatar: 'IA' })} className={`w-full p-3 rounded-2xl border text-left flex justify-between items-center font-bold text-xs ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50'}`}><span>💼 Admin Toko</span><Icon name="user-check" className="w-4 h-4 text-cyan-400"/></button>
-                  <button onClick={() => handleRoleSwitchRequest({ name: 'Mas Kasir', role: 'kasir', avatar: 'MK' })} className={`w-full p-3 rounded-2xl border text-left flex justify-between items-center font-bold text-xs ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50'}`}><span>🛒 Kasir (POS)</span><Icon name="lock" className="w-4 h-4 text-slate-400"/></button>
+                  <button onClick={() => handleRoleSwitchRequest({ name: 'Owner Toko', role: 'owner', avatar: 'OT' })} className={`w-full p-3 rounded-2xl border text-left flex justify-between items-center font-bold text-xs ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50'}`}><span>👑 Owner (Akses Penuh)</span><Icon name="shield-check" className="w-4 h-4 text-indigo-400"/></button>
+                  <button onClick={() => handleRoleSwitchRequest({ name: 'Admin Toko', role: 'admin', avatar: 'AT' })} className={`w-full p-3 rounded-2xl border text-left flex justify-between items-center font-bold text-xs ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50'}`}><span>💼 Admin Toko</span><Icon name="user-check" className="w-4 h-4 text-cyan-400"/></button>
+                  <button onClick={() => handleRoleSwitchRequest({ name: 'Kasir POS', role: 'kasir', avatar: 'KP' })} className={`w-full p-3 rounded-2xl border text-left flex justify-between items-center font-bold text-xs ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50'}`}><span>🛒 Kasir (POS)</span><Icon name="lock" className="w-4 h-4 text-slate-400"/></button>
                 </div>
               </div>
             </div>
