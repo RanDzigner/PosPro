@@ -855,8 +855,10 @@
               feedback: {
                 type: 'success',
                 title: '✅ STOK DITAMBAHKAN (+1)',
-                desc: `"${updatedProducts[matchedIndex].name}" • Total Stok Sekarang: ${newStock}`,
-                code: cleanCode
+                desc: `"${updatedProducts[matchedIndex].name}"`,
+                code: cleanCode,
+                scanCount: newStock,
+                countLabel: 'Total Stok Sekarang'
               }
             }));
             showToast(`✅ +1 Stok "${updatedProducts[matchedIndex].name}" (Total: ${newStock})`);
@@ -878,6 +880,10 @@
         } else {
           const matchedProduct = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (matchedProduct) {
+            const existingCartItem = cart.find(item => item.product.id === matchedProduct.id);
+            const currentQty = existingCartItem ? Number(existingCartItem.qty) || 0 : 0;
+            const nextQty = currentQty + 1;
+
             const added = addToCart(matchedProduct);
             if (added) {
               setScannerModal(prev => ({
@@ -885,12 +891,15 @@
                 lastScanned: cleanCode,
                 feedback: {
                   type: 'success',
-                  title: '✅ MASUK KERANJANG (+1)',
+                  title: '✅ MASUK KERANJANG',
                   desc: `${matchedProduct.name} • ${formatMoney(matchedProduct.price)}`,
-                  code: cleanCode
+                  code: cleanCode,
+                  scanCount: nextQty,
+                  countLabel: 'Jumlah di Keranjang',
+                  subtotalItem: formatMoney(matchedProduct.price * nextQty)
                 }
               }));
-              showToast(`+1 ${matchedProduct.name} (${cleanCode})!`);
+              showToast(`+1 ${matchedProduct.name} (Total: ${nextQty}x)`);
             } else {
               setScannerModal(prev => ({
                 ...prev,
@@ -899,7 +908,9 @@
                   type: 'warning',
                   title: '⚠️ MAKSIMAL STOK / HABIS',
                   desc: `Stok ${matchedProduct.name} tidak mencukupi untuk ditambah lagi.`,
-                  code: cleanCode
+                  code: cleanCode,
+                  scanCount: currentQty,
+                  countLabel: 'Jumlah Maksimal'
                 }
               }));
             }
@@ -919,7 +930,7 @@
             showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
           }
         }
-      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal]);
+      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal, cart]);
 
       const startLiveCamera = async () => {
         setScannerModal(prev => ({ ...prev, isLoadingCamera: true, errorMsg: '' }));
@@ -2619,8 +2630,21 @@
                         <Icon name={scannerModal.feedback.type === 'error' ? 'alert-triangle' : scannerModal.feedback.type === 'warning' ? 'alert-circle' : 'check-circle'} className="w-5 h-5" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="font-black text-xs sm:text-sm tracking-tight">{scannerModal.feedback.title}</p>
-                        <p className="text-[11px] opacity-90 mt-0.5 leading-snug">{scannerModal.feedback.desc}</p>
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <p className="font-black text-xs sm:text-sm tracking-tight">{scannerModal.feedback.title}</p>
+                          {scannerModal.feedback.scanCount !== undefined && (
+                            <span className="bg-emerald-400 text-slate-950 font-black px-2 py-0.5 rounded-lg text-xs shadow-md animate-bounce flex items-center gap-1">
+                              <span>{scannerModal.feedback.countLabel || 'Di Keranjang'}:</span>
+                              <span className="text-sm font-black underline">{scannerModal.feedback.scanCount}x</span>
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] opacity-90 mt-1 leading-snug">{scannerModal.feedback.desc}</p>
+                        {scannerModal.feedback.subtotalItem && (
+                          <p className="text-[11px] text-cyan-300 font-extrabold mt-0.5">
+                            Total: {scannerModal.feedback.subtotalItem}
+                          </p>
+                        )}
                         <p className="text-[10px] font-mono opacity-70 mt-1">Barcode: {scannerModal.feedback.code}</p>
                         
                         {scannerModal.feedback.action === 'create_product' && (
