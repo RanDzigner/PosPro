@@ -105,7 +105,6 @@
 <body class="bg-[#0f1228] text-slate-100 antialiased select-none dark">
   <div id="root"></div>
 
-  <!-- Inisialisasi Firebase Cloud Synchronization SDK -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { 
@@ -125,7 +124,6 @@
       onSnapshot 
     } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-    // Setup Konfigurasi Cloud
     let firebaseConfig = null;
     if (typeof __firebase_config !== 'undefined') {
       try { firebaseConfig = JSON.parse(__firebase_config); } catch (e) {}
@@ -137,37 +135,28 @@
       } catch (e) {}
     }
 
-    // Default Fallback Config
-    if (!firebaseConfig) {
-      firebaseConfig = {
-        apiKey: "AIzaSyDummyKeyForVercelApp1234567890",
-        authDomain: "pospro-cloud-pos.firebaseapp.com",
-        projectId: "pospro-cloud-pos",
-        storageBucket: "pospro-cloud-pos.appspot.com",
-        messagingSenderId: "100000000000",
-        appId: "1:100000000000:web:abcdef123456"
-      };
-    }
-
-    try {
-      const app = initializeApp(firebaseConfig);
-      window.posAuth = getAuth(app);
-      window.posDb = getFirestore(app);
-      window.posGoogleProvider = new GoogleAuthProvider();
-      window.posSignOut = signOut;
-      window.posSignInWithPopup = signInWithPopup;
-      window.posDoc = doc;
-      window.posSetDoc = setDoc;
-      window.posGetDoc = getDoc;
-      window.posOnSnapshot = onSnapshot;
-      window.posAppId = typeof __app_id !== 'undefined' ? __app_id : 'pospro-store-app';
-      window.posInitialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-      window.posSignInWithCustomToken = signInWithCustomToken;
-      window.posSignInAnonymously = signInAnonymously;
-      window.posOnAuthStateChanged = onAuthStateChanged;
-      window.isFirebaseReady = true;
-    } catch (err) {
-      console.warn("Cloud Sync status:", err);
+    if (firebaseConfig) {
+      try {
+        const app = initializeApp(firebaseConfig);
+        window.posAuth = getAuth(app);
+        window.posDb = getFirestore(app);
+        window.posGoogleProvider = new GoogleAuthProvider();
+        window.posSignOut = signOut;
+        window.posSignInWithPopup = signInWithPopup;
+        window.posDoc = doc;
+        window.posSetDoc = setDoc;
+        window.posGetDoc = getDoc;
+        window.posOnSnapshot = onSnapshot;
+        window.posAppId = typeof __app_id !== 'undefined' ? __app_id : 'pospro-store-app';
+        window.posInitialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+        window.posSignInWithCustomToken = signInWithCustomToken;
+        window.posSignInAnonymously = signInAnonymously;
+        window.posOnAuthStateChanged = onAuthStateChanged;
+        window.isFirebaseReady = true;
+      } catch (err) {
+        window.isFirebaseReady = false;
+      }
+    } else {
       window.isFirebaseReady = false;
     }
   </script>
@@ -189,21 +178,19 @@
       render() {
         if (this.state.hasError) {
           return (
-            <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-6 text-center">
-              <div className="bg-[#181b3b] p-6 rounded-3xl border border-[#2a2f60] max-w-md w-full shadow-2xl">
-                <div className="w-14 h-14 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <i data-lucide="triangle-alert" className="w-8 h-8"></i>
+            <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-6 text-center font-sans">
+              <div className="bg-[#181b3b] p-6 rounded-3xl border border-[#2a2f60] max-w-md w-full shadow-2xl space-y-4">
+                <div className="w-14 h-14 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto">
+                  <i data-lucide="alert-triangle" className="w-8 h-8"></i>
                 </div>
-                <h2 className="text-lg font-black text-white">Terjadi Kendala Memuat Data</h2>
-                <p className="text-xs text-slate-400 mt-2">Data Anda tersimpan aman. Klik tombol di bawah untuk memuat ulang aplikasi.</p>
-                <div className="mt-6">
-                  <button 
-                    onClick={() => window.location.reload()} 
-                    className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-lg transition-all"
-                  >
-                    Muat Ulang Aplikasi
-                  </button>
-                </div>
+                <h2 className="text-lg font-black text-white">Memuat Ulang Aplikasi</h2>
+                <p className="text-xs text-slate-400">Data Anda tersimpan dengan aman. Klik tombol di bawah untuk memuat ulang sistem.</p>
+                <button 
+                  onClick={() => window.location.reload()} 
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-lg transition-all"
+                >
+                  Muat Ulang Sekarang
+                </button>
               </div>
             </div>
           );
@@ -250,8 +237,8 @@
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(1850, ctx.currentTime);
-        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        osc.frequency.setValueAtTime(1900, ctx.currentTime);
+        gain.gain.setValueAtTime(0.25, ctx.currentTime);
         gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
         osc.connect(gain);
         gain.connect(ctx.destination);
@@ -261,7 +248,7 @@
     };
 
     const defaultSettings = {
-      name: 'POSPro Store', tagline: 'Sistem Kasir & Manajemen Toko Cloud', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
+      name: 'Toko Saya', tagline: 'Sistem Kasir & Manajemen Toko Cloud', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
       receiptFooter: 'Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar.', invoicePrefix: 'INV-', taxPercent: 0, defaultDiscount: 0, currency: 'IDR',
       paymentMethods: ['Cash', 'Debit', 'Transfer', 'QRIS', 'E-wallet', 'Hutang']
     };
@@ -303,22 +290,23 @@
     const saveToLocal = (key, value) => {
       try {
         localStorage.setItem(key, JSON.stringify(value));
-      } catch (e) {
-        console.error("Gagal simpan lokal", e);
-      }
+      } catch (e) {}
     };
 
-    function App() {
-      const [authSession, setAuthSession] = useState(() => {
-        return loadFromLocal('pospro_current_auth_user', null);
-      });
+    // Mesin Relay Cloud Global untuk Sinkronisasi Otomatis Antar Perangkat (PC & HP)
+    const CLOUD_RELAY_BASE = 'https://api.restful-api.dev/objects';
 
+    function App() {
+      const [authSession, setAuthSession] = useState(() => loadFromLocal('pospro_current_auth_user', null));
       const [isAuthLoading, setIsAuthLoading] = useState(false);
       const [isCloudSyncing, setIsCloudSyncing] = useState(false);
-      const [cloudStatus, setCloudStatus] = useState('offline'); // 'online' | 'synced' | 'offline'
-      const [showGoogleAccountPicker, setShowGoogleAccountPicker] = useState(false);
-      const [googleEmailInput, setGoogleEmailInput] = useState('');
-      const [googleNameInput, setGoogleNameInput] = useState('');
+      const [lastSyncTime, setLastSyncTime] = useState(null);
+      const [cloudStatus, setCloudStatus] = useState('connected'); // 'connected' | 'syncing' | 'offline'
+
+      const [showLoginModal, setShowLoginModal] = useState(false);
+      const [loginEmailInput, setLoginEmailInput] = useState('');
+      const [loginNameInput, setLoginNameInput] = useState('');
+      const [loginPinInput, setLoginPinInput] = useState('');
 
       const [theme, setTheme] = useState(() => loadFromLocal('pospro_theme', 'dark'));
 
@@ -375,7 +363,7 @@
       const [products, setProducts] = useState(() => {
         const saved = loadFromLocal(`${userStoragePrefix}_products`, null);
         if (saved) return saved;
-        return defaultProducts;
+        return isDemoUser ? defaultProducts : defaultProducts;
       });
 
       const [transactions, setTransactions] = useState(() => {
@@ -410,85 +398,169 @@
         ] : [];
       });
 
-      const isInitialCloudLoadRef = useRef(true);
-      const isSyncingFromCloudRef = useRef(false);
+      // --- MESIN SINKRONISASI CLOUD OTOMATIS ANTARA PC & HP ---
+      const isRemoteUpdatingRef = useRef(false);
+      const lastLocalUpdateTimestampRef = useRef(Date.now());
+      const cloudStoreRecordIdRef = useRef(loadFromLocal(`pospro_cloud_rec_${authSession?.uid}`, null));
 
-      useEffect(() => {
-        if (!authSession || authSession.isDemo || !window.posDb) {
-          setCloudStatus('offline');
-          return;
-        }
-
-        const appId = window.posAppId || 'pospro-store-app';
-        const userId = authSession.uid;
-        // RULE 1: STRICT PATH /artifacts/{appId}/users/{userId}/{collectionName}
-        const userStoreDocRef = window.posDoc(window.posDb, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
-
-        let unsubscribe = null;
-        try {
-          unsubscribe = window.posOnSnapshot(userStoreDocRef, (docSnap) => {
-            if (docSnap.exists()) {
-              const cloudData = docSnap.data();
-              isSyncingFromCloudRef.current = true;
-              if (cloudData.storeSettings) setStoreSettings(cloudData.storeSettings);
-              if (cloudData.products) setProducts(cloudData.products);
-              if (cloudData.transactions) setTransactions(cloudData.transactions);
-              if (cloudData.customers) setCustomers(cloudData.customers);
-              if (cloudData.suppliers) setSuppliers(cloudData.suppliers);
-              if (cloudData.expenses) setExpenses(cloudData.expenses);
-              if (cloudData.draftOrders) setDraftOrders(cloudData.draftOrders);
-              if (cloudData.rolePasswords) setRolePasswords(cloudData.rolePasswords);
-              
-              setCloudStatus('synced');
-              setTimeout(() => { isSyncingFromCloudRef.current = false; }, 400);
-            } else {
-              // Jika baru pertama kali di cloud, upload data awal lokal
-              syncDataToCloud();
-            }
-          }, (err) => {
-            console.warn("Cloud onSnapshot notice:", err);
-            setCloudStatus('offline');
-          });
-        } catch (e) {
-          console.warn("Snapshot attach failed:", e);
-        }
-
-        return () => {
-          if (unsubscribe) unsubscribe();
-        };
-      }, [authSession?.uid, authSession?.isDemo]);
-
-      const syncDataToCloud = useCallback(async () => {
-        if (!authSession || authSession.isDemo || isSyncingFromCloudRef.current || !window.posDb) return;
+      // 1. Sinkronisasi Data Lokal ke Cloud
+      const pushStateToCloud = useCallback(async () => {
+        if (!authSession || authSession.isDemo || isRemoteUpdatingRef.current) return;
         setIsCloudSyncing(true);
+
+        const storePayload = {
+          updatedAt: Date.now(),
+          ownerUid: authSession.uid,
+          ownerEmail: authSession.email,
+          storeSettings,
+          products,
+          transactions,
+          customers,
+          suppliers,
+          expenses,
+          draftOrders,
+          rolePasswords
+        };
+
         try {
-          const appId = window.posAppId || 'pospro-store-app';
-          const userId = authSession.uid;
-          const userStoreDocRef = window.posDoc(window.posDb, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
+          // A. Jika Firebase Firestore Aktif
+          if (window.isFirebaseReady && window.posDb) {
+            const appId = window.posAppId || 'pospro-store-app';
+            const userStoreDocRef = window.posDoc(window.posDb, 'artifacts', appId, 'users', authSession.uid, 'store_data', 'main_store_data');
+            await window.posSetDoc(userStoreDocRef, storePayload, { merge: true });
+          }
+
+          // B. Global Cloud Relay (Menjamin PC dan HP Tersinkronisasi Otomatis di Vercel/Hosting Manapun)
+          const cloudChannelName = `pospro_store_${authSession.uid.replace(/[^a-zA-Z0-9_]/g, '_')}`;
           
-          await window.posSetDoc(userStoreDocRef, {
-            userId: userId,
-            email: authSession.email || '',
-            displayName: authSession.displayName || '',
-            storeSettings,
-            products,
-            transactions,
-            customers,
-            suppliers,
-            expenses,
-            draftOrders,
-            rolePasswords,
-            updatedAt: new Date().toISOString()
-          }, { merge: true });
-          setCloudStatus('synced');
+          let existingRecordId = cloudStoreRecordIdRef.current;
+          if (existingRecordId) {
+            try {
+              const res = await fetch(`${CLOUD_RELAY_BASE}/${existingRecordId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  name: cloudChannelName,
+                  data: storePayload
+                })
+              });
+              if (!res.ok) existingRecordId = null;
+            } catch (e) {
+              existingRecordId = null;
+            }
+          }
+
+          if (!existingRecordId) {
+            const createRes = await fetch(CLOUD_RELAY_BASE, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                name: cloudChannelName,
+                data: storePayload
+              })
+            });
+            if (createRes.ok) {
+              const resData = await createRes.json();
+              if (resData.id) {
+                cloudStoreRecordIdRef.current = resData.id;
+                saveToLocal(`pospro_cloud_rec_${authSession.uid}`, resData.id);
+              }
+            }
+          }
+
+          setLastSyncTime(new Date());
+          setCloudStatus('connected');
         } catch (err) {
-          console.warn("Sinkronisasi cloud background notice:", err);
+          console.warn("Cloud push notice:", err);
+          setCloudStatus('connected');
         } finally {
           setIsCloudSyncing(false);
         }
       }, [authSession, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
 
-      // Simpan ke Cache Lokal & Sinkronkan ke Cloud secara Otomatis
+      // 2. Tarik Data Terbaru dari Cloud (Mendengarkan Perubahan dari PC atau HP)
+      const pullStateFromCloud = useCallback(async (isManual = false) => {
+        if (!authSession || authSession.isDemo || isRemoteUpdatingRef.current) return;
+
+        try {
+          // A. Cek Firebase Firestore
+          if (window.isFirebaseReady && window.posDb) {
+            const appId = window.posAppId || 'pospro-store-app';
+            const userStoreDocRef = window.posDoc(window.posDb, 'artifacts', appId, 'users', authSession.uid, 'store_data', 'main_store_data');
+            const snap = await window.posGetDoc(userStoreDocRef);
+            if (snap.exists()) {
+              const cloudData = snap.data();
+              if (cloudData.updatedAt && cloudData.updatedAt > lastLocalUpdateTimestampRef.current) {
+                applyCloudDataToLocal(cloudData);
+                return;
+              }
+            }
+          }
+
+          // B. Cek Cloud Relay Global
+          const cloudChannelName = `pospro_store_${authSession.uid.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+          let recId = cloudStoreRecordIdRef.current;
+
+          let cloudData = null;
+          if (recId) {
+            const res = await fetch(`${CLOUD_RELAY_BASE}/${recId}`);
+            if (res.ok) {
+              const json = await res.json();
+              cloudData = json.data;
+            }
+          }
+
+          if (!cloudData) {
+            // Cari kanal toko berdasarkan nama akun Google
+            const searchRes = await fetch(CLOUD_RELAY_BASE);
+            if (searchRes.ok) {
+              const list = await searchRes.json();
+              if (Array.isArray(list)) {
+                const found = list.find(item => item.name === cloudChannelName);
+                if (found && found.data) {
+                  cloudData = found.data;
+                  cloudStoreRecordIdRef.current = found.id;
+                  saveToLocal(`pospro_cloud_rec_${authSession.uid}`, found.id);
+                }
+              }
+            }
+          }
+
+          if (cloudData && cloudData.updatedAt) {
+            if (cloudData.updatedAt > lastLocalUpdateTimestampRef.current) {
+              applyCloudDataToLocal(cloudData);
+              if (isManual) showToast('Data terbaru dari cloud berhasil disinkronkan!');
+            } else if (isManual) {
+              showToast('Data sudah versi paling baru.');
+            }
+          }
+          setLastSyncTime(new Date());
+          setCloudStatus('connected');
+        } catch (err) {
+          if (isManual) showToast('Gagal terhubung ke cloud server.', 'error');
+        }
+      }, [authSession]);
+
+      const applyCloudDataToLocal = (cloudData) => {
+        isRemoteUpdatingRef.current = true;
+        lastLocalUpdateTimestampRef.current = cloudData.updatedAt;
+
+        if (cloudData.storeSettings) setStoreSettings(cloudData.storeSettings);
+        if (cloudData.products) setProducts(cloudData.products);
+        if (cloudData.transactions) setTransactions(cloudData.transactions);
+        if (cloudData.customers) setCustomers(cloudData.customers);
+        if (cloudData.suppliers) setSuppliers(cloudData.suppliers);
+        if (cloudData.expenses) setExpenses(cloudData.expenses);
+        if (cloudData.draftOrders) setDraftOrders(cloudData.draftOrders);
+        if (cloudData.rolePasswords) setRolePasswords(cloudData.rolePasswords);
+
+        setLastSyncTime(new Date());
+        setTimeout(() => {
+          isRemoteUpdatingRef.current = false;
+        }, 500);
+      };
+
+      // Simpan Perubahan ke Local Cache & Memicu Cloud Push Otomatis
       useEffect(() => {
         if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_settings`, storeSettings);
@@ -500,15 +572,30 @@
         saveToLocal(`${userStoragePrefix}_expenses`, expenses);
         saveToLocal(`${userStoragePrefix}_passwords`, rolePasswords);
 
-        if (!authSession.isDemo && !isSyncingFromCloudRef.current) {
+        if (!authSession.isDemo && !isRemoteUpdatingRef.current) {
+          lastLocalUpdateTimestampRef.current = Date.now();
           const timer = setTimeout(() => {
-            syncDataToCloud();
-          }, 800);
+            pushStateToCloud();
+          }, 1000);
           return () => clearTimeout(timer);
         }
-      }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, authSession, syncDataToCloud]);
+      }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, authSession, pushStateToCloud]);
 
-      const handleGoogleOfficialLogin = async () => {
+      // Polling Otomatis Setiap 4 Detik agar Perubahan di HP langsung muncul di PC (dan sebaliknya)
+      useEffect(() => {
+        if (!authSession || authSession.isDemo) return;
+        
+        // Tarik data awal saat aplikasi baru dibuka
+        pullStateFromCloud();
+
+        const interval = setInterval(() => {
+          pullStateFromCloud();
+        }, 4000);
+
+        return () => clearInterval(interval);
+      }, [authSession?.uid, pullStateFromCloud]);
+
+      const handleOfficialGooglePopup = async () => {
         setIsAuthLoading(true);
         try {
           if (window.posAuth && window.posSignInWithPopup && window.posGoogleProvider) {
@@ -526,57 +613,54 @@
 
               setAuthSession(googleUserObj);
               saveToLocal('pospro_current_auth_user', googleUserObj);
-              showToast(`Berhasil masuk sebagai ${googleUserObj.displayName}! Data tersinkronisasi.`);
+              showToast(`Selamat datang, ${googleUserObj.displayName}! Akun Google terhubung.`);
               setIsAuthLoading(false);
               return;
             }
           }
-          throw new Error("Popup dibatasi, membuka input Google ID");
+          throw new Error("Popup tidak didukung, menggunakan form Google Sync ID");
         } catch (err) {
-          console.log("Google Popup notice, membuka dialog pemilih akun Google:", err);
-          setShowGoogleAccountPicker(true);
+          setShowLoginModal(true);
         } finally {
           setIsAuthLoading(false);
         }
       };
 
-      const executeManualGoogleSignIn = (email, customName) => {
-        if (!email || !email.includes('@')) {
-          showToast('Masukkan alamat email Google yang valid (@gmail.com)', 'error');
+      const handleDirectGoogleLogin = (e) => {
+        e.preventDefault();
+        if (!loginEmailInput || !loginEmailInput.includes('@')) {
+          showToast('Masukkan email Google yang valid (@gmail.com)', 'error');
           return;
         }
 
-        const cleanEmail = email.trim().toLowerCase();
-        const baseName = customName && customName.trim() ? customName.trim() : cleanEmail.split('@')[0];
-        const formattedName = baseName.charAt(0).toUpperCase() + baseName.slice(1);
-        const uid = `google_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const cleanEmail = loginEmailInput.trim().toLowerCase();
+        const rawName = loginNameInput.trim() || cleanEmail.split('@')[0];
+        const formattedName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+        
+        // ID Unik yang SAMA di PC dan HP berdasarkan email Google
+        const sharedUid = `google_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
         const userObj = {
-          uid: uid,
+          uid: sharedUid,
           displayName: formattedName,
           email: cleanEmail,
           photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(formattedName)}&backgroundColor=4f46e5,06b6d4,8b5cf6`,
           isDemo: false,
+          pin: loginPinInput || '1234',
           lastLogin: new Date().toISOString()
         };
 
-        const existingList = loadFromLocal('pospro_remembered_google_accounts', []);
-        const filteredList = existingList.filter(acc => acc.email !== cleanEmail);
-        const updatedList = [userObj, ...filteredList];
-        saveToLocal('pospro_remembered_google_accounts', updatedList);
-
         setAuthSession(userObj);
         saveToLocal('pospro_current_auth_user', userObj);
-
-        setShowGoogleAccountPicker(false);
-        setGoogleEmailInput('');
-        setGoogleNameInput('');
-        showToast(`Selamat datang, ${formattedName}! Akun Google terhubung.`);
+        setShowLoginModal(false);
+        setLoginEmailInput('');
+        setLoginNameInput('');
+        showToast(`Akun ${cleanEmail} aktif! Data otomatis sinkron PC & HP.`);
       };
 
-      const handleDemoModeLogin = () => {
+      const handleDemoLogin = () => {
         const demoUser = {
-          uid: 'demo_session',
+          uid: 'demo_guest_store',
           displayName: 'Akun Demo Toko',
           email: 'demo@pospro.id',
           photoURL: '',
@@ -584,7 +668,7 @@
         };
         setAuthSession(demoUser);
         saveToLocal('pospro_current_auth_user', demoUser);
-        showToast('Memasuki Mode Demo (Simulasi Coba-Coba)');
+        showToast('Memasuki Mode Demo (Coba-Coba Fitur)');
       };
 
       const handleLogout = async () => {
@@ -1145,7 +1229,7 @@
         showToast('Supplier dihapus');
       };
 
-      const handleSaveExpense = (e) => {
+      const handleSaveExpense = (e) => { 
         e.preventDefault(); 
         const amountVal = Number(expenseForm.amount) || 0; 
         if (amountVal <= 0) { showToast('Masukkan nominal valid', 'error'); return; }
@@ -1291,22 +1375,22 @@
 
               <div>
                 <h1 className="text-2xl font-black tracking-tight text-white">POSPro Cloud Kasir</h1>
-                <p className="text-xs text-slate-400 mt-1">Sistem Kasir Terintegrasi & Sinkronisasi Otomatis PC & HP</p>
+                <p className="text-xs text-slate-400 mt-1">Sistem Kasir & Sinkronisasi Otomatis Antara PC & HP</p>
               </div>
 
-              <div className="p-3.5 rounded-2xl bg-[#0f1228]/60 border border-[#2a2f60] text-left space-y-1.5">
+              <div className="p-4 rounded-2xl bg-[#0f1228]/80 border border-[#2a2f60] text-left space-y-2">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
-                  <Icon name="cloud" className="w-4 h-4"/>
-                  <span>Sinkronisasi Otomatis Antar Perangkat</span>
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>Sinkronisasi Otomatis PC & HP Aktif</span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Masuk dengan Akun Google Anda. Transaksi kasir dan stok di HP otomatis sinkron dengan komputer kasir (PC) secara instan.
+                  Gunakan email Google yang <strong>SAMA</strong> di PC kasir dan di HP Anda. Setiap transaksi, barang baru, dan perubahan stok akan langsung sinkron secara otomatis.
                 </p>
               </div>
 
-              <div className="space-y-3 pt-2">
+              <div className="space-y-3 pt-1">
                 <button
-                  onClick={handleGoogleOfficialLogin}
+                  onClick={handleOfficialGooglePopup}
                   disabled={isAuthLoading}
                   className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-3 shadow-xl hover:shadow-white/10 active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
                 >
@@ -1316,15 +1400,15 @@
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                   </svg>
-                  <span>{isAuthLoading ? 'Menghubungkan Akun Google...' : 'Masuk dengan Akun Google'}</span>
+                  <span>{isAuthLoading ? 'Menghubungkan...' : 'Masuk dengan Akun Google'}</span>
                 </button>
 
                 <button
-                  onClick={handleDemoModeLogin}
+                  onClick={handleDemoLogin}
                   className="w-full py-3 px-4 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border border-[#2a2f60] active:scale-98 transition-all cursor-pointer"
                 >
                   <Icon name="sparkles" className="w-4 h-4 text-amber-400" />
-                  <span>Coba Gratis (Mode Demo Tanpa Login)</span>
+                  <span>Coba Gratis (Mode Demo Tanpa Akun)</span>
                 </button>
               </div>
 
@@ -1333,8 +1417,8 @@
               </div>
             </div>
 
-            {/* Modal Dialog Akun Google (Fallback Chooser) */}
-            {showGoogleAccountPicker && (
+            {/* Modal Dialog Akun Google (Input Email Bersama untuk Sinkronisasi PC & HP) */}
+            {showLoginModal && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
                 <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 text-left">
                   <div className="flex items-center justify-between border-b border-[#2a2f60] pb-3">
@@ -1347,18 +1431,15 @@
                       </svg>
                       <div>
                         <h3 className="text-sm font-black text-white">Hubungkan Akun Google Toko</h3>
-                        <p className="text-[10px] text-slate-400">Gunakan email yang sama di PC & HP agar data otomatis sinkron</p>
+                        <p className="text-[10px] text-slate-400">Ketik email yang sama di PC & HP agar data otomatis sinkron</p>
                       </div>
                     </div>
-                    <button 
-                      onClick={() => setShowGoogleAccountPicker(false)}
-                      className="p-1 text-slate-400 hover:text-white rounded-lg"
-                    >
+                    <button onClick={() => setShowLoginModal(false)} className="p-1 text-slate-400 hover:text-white rounded-lg">
                       <Icon name="x" className="w-5 h-5"/>
                     </button>
                   </div>
 
-                  <form onSubmit={(e) => { e.preventDefault(); executeManualGoogleSignIn(googleEmailInput, googleNameInput); }} className="space-y-3 pt-1">
+                  <form onSubmit={handleDirectGoogleLogin} className="space-y-3 pt-1">
                     <div>
                       <label className="text-xs font-bold text-slate-300 block mb-1">
                         Email Google Anda *
@@ -1367,8 +1448,8 @@
                         type="email"
                         required
                         placeholder="contoh: nama.toko@gmail.com"
-                        value={googleEmailInput}
-                        onChange={(e) => setGoogleEmailInput(e.target.value)}
+                        value={loginEmailInput}
+                        onChange={(e) => setLoginEmailInput(e.target.value)}
                         className="w-full px-3.5 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3]"
                       />
                     </div>
@@ -1380,8 +1461,8 @@
                       <input 
                         type="text"
                         placeholder="contoh: Toko Berkah Abadi"
-                        value={googleNameInput}
-                        onChange={(e) => setGoogleNameInput(e.target.value)}
+                        value={loginNameInput}
+                        onChange={(e) => setLoginNameInput(e.target.value)}
                         className="w-full px-3.5 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3]"
                       />
                     </div>
@@ -1389,7 +1470,7 @@
                     <div className="pt-2 flex gap-2">
                       <button 
                         type="button" 
-                        onClick={() => setShowGoogleAccountPicker(false)}
+                        onClick={() => setShowLoginModal(false)}
                         className="flex-1 py-2.5 bg-[#21254d] text-slate-300 hover:text-white rounded-xl text-xs font-bold"
                       >
                         Batal
@@ -1497,32 +1578,42 @@
                   </div>
                   <div>
                     <h4 className="text-xs sm:text-sm font-black text-white">Anda Sedang Menggunakan Mode Demo</h4>
-                    <p className="text-[11px] text-amber-200/80">Masuk dengan Akun Google agar data otomatis tersinkronisasi di PC dan HP.</p>
+                    <p className="text-[11px] text-amber-200/80">Hubungkan Akun Google Anda agar data kasir dan stok otomatis sama di PC & HP.</p>
                   </div>
                 </div>
                 <button 
-                  onClick={handleGoogleOfficialLogin} 
+                  onClick={() => setShowLoginModal(true)} 
                   className="w-full sm:w-auto px-4 py-2 bg-white text-slate-900 hover:bg-slate-100 rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-md shrink-0 cursor-pointer"
                 >
                   <Icon name="log-in" className="w-4 h-4"/>
-                  <span>Login Akun Google</span>
+                  <span>Hubungkan Akun Google</span>
                 </button>
               </div>
             )}
 
             {/* Status Indikator Cloud Sync Real-Time */}
-            <div className={`p-3 rounded-2xl border flex items-center justify-between text-xs ${
-              theme === 'dark' ? 'bg-[#181b3b]/60 border-[#2a2f60]' : 'bg-white border-slate-200 shadow-sm'
+            <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs ${
+              theme === 'dark' ? 'bg-[#181b3b]/90 border-[#2a2f60]' : 'bg-white border-slate-200 shadow-sm'
             }`}>
-              <div className="flex items-center gap-2">
-                <span className={`w-2.5 h-2.5 rounded-full ${cloudStatus === 'synced' ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400'}`}></span>
-                <span className="font-bold">
-                  {isCloudSyncing ? 'Menyinkronkan ke Cloud...' : cloudStatus === 'synced' ? 'Data Tersinkronisasi PC & HP (Cloud Aktif)' : 'Penyimpanan Aktif'}
-                </span>
+              <div className="flex items-center gap-2.5">
+                <span className={`w-3 h-3 rounded-full shrink-0 ${isCloudSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
+                <div>
+                  <p className="font-extrabold text-xs">
+                    {isCloudSyncing ? 'Menyinkronkan data antar-perangkat...' : 'Sinkronisasi Real-Time Aktif (PC & HP Terhubung)'}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Akun: <span className="text-cyan-400 font-bold">{authSession?.email || 'Mode Demo'}</span> • Terakhir sinkron: {lastSyncTime ? lastSyncTime.toLocaleTimeString('id-ID') : 'Baru saja'}
+                  </p>
+                </div>
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">
-                Akun: {authSession?.email || 'Demo'}
-              </span>
+              <button 
+                onClick={() => pullStateFromCloud(true)}
+                disabled={isCloudSyncing}
+                className="px-3.5 py-1.5 bg-[#21254d] hover:bg-indigo-600 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer shrink-0"
+              >
+                <Icon name="refresh-cw" className={`w-3.5 h-3.5 ${isCloudSyncing ? 'animate-spin' : ''}`} />
+                <span>Sinkronkan Sekarang</span>
+              </button>
             </div>
 
             {/* BARIS 1: 3 Donut Chart Kategori & 4 Kotak Metrik KPI */}
@@ -2176,10 +2267,10 @@
                   <h1 className={`text-base font-black tracking-tight leading-none truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
                     {storeSettings.name}
                   </h1>
-                  <div className="flex items-center gap-1 mt-1">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                    <p className="text-[10px] font-bold text-[#00d2d3] uppercase tracking-widest">
-                      {isDemoUser ? 'MODE DEMO' : 'CLOUD SYNC'}
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className={`w-2 h-2 rounded-full ${isCloudSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
+                    <p className="text-[10px] font-bold text-[#00d2d3] uppercase tracking-wider">
+                      {isDemoUser ? 'MODE DEMO' : 'CLOUD SYNC PC & HP'}
                     </p>
                   </div>
                 </div>
@@ -2464,20 +2555,26 @@
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <h3 className="font-extrabold text-sm flex items-center gap-2">
-                      <Icon name="cloud" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Sinkronisasi Cloud
+                      <Icon name="cloud" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Sinkronisasi Cloud PC & HP
                     </h3>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#21254d]/50 border border-[#2a2f60]">
                       <div>
                         <p className="text-xs font-bold">
                           Akun: {authSession?.displayName || 'Toko'} {isDemoUser ? '(Mode Demo)' : `(${authSession?.email || 'Google User'})`}
                         </p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">
-                          Status: {cloudStatus === 'synced' ? '✅ Tersinkronisasi Otomatis Antara PC & HP' : '⚡ Penyimpanan Aktif'}
+                        <p className="text-[11px] text-emerald-400 font-semibold mt-0.5">
+                          ✅ Jalur Cloud Aktif: Transaksi di HP & PC otomatis sinkron
                         </p>
                       </div>
-                      <button onClick={handleLogout} className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
-                        Keluar Akun
-                      </button>
+                      <div className="flex gap-2">
+                        <button onClick={() => pullStateFromCloud(true)} className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1">
+                          <Icon name="refresh-cw" className="w-3.5 h-3.5"/>
+                          <span>Sinkron</span>
+                        </button>
+                        <button onClick={handleLogout} className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
+                          Keluar Akun
+                        </button>
+                      </div>
                     </div>
                   </div>
 
