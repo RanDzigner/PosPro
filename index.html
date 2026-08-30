@@ -479,9 +479,44 @@
         setScannerModal(prev => ({ ...prev, lastScanned: cleanCode }));
 
         if (scannerModal.target === 'product_form') {
-          setProductForm(prev => ({ ...prev, sku: cleanCode }));
-          showToast(`SKU Barcode ${cleanCode} berhasil dimasukkan!`);
+          // Cek apakah barcode sudah terdaftar di produk yang ada
+          const existing = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
+          if (existing && !editingProduct) {
+            setEditingProduct(existing);
+            setProductForm(existing);
+            showToast(`Produk "${existing.name}" ditemukan! Memuat data...`, 'info');
+          } else {
+            setProductForm(prev => ({ ...prev, sku: cleanCode }));
+            showToast(`SKU Barcode ${cleanCode} berhasil dimasukkan!`);
+          }
           closeScannerModal();
+        } else if (scannerModal.target === 'inventory_restock') {
+          // Mode Scan Cepat Tambah Stok di Katalog Produk
+          const matchedIndex = products.findIndex(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
+          if (matchedIndex !== -1) {
+            const updatedProducts = [...products];
+            const currentStock = Number(updatedProducts[matchedIndex].stock) || 0;
+            const newStock = currentStock + 1;
+            updatedProducts[matchedIndex] = {
+              ...updatedProducts[matchedIndex],
+              stock: newStock
+            };
+            setProducts(updatedProducts);
+            showToast(`✅ +1 Stok "${updatedProducts[matchedIndex].name}" (Total: ${newStock})`);
+            
+            if (typeof google !== 'undefined' && google.script && google.script.run) {
+              google.script.run.updateProduct(updatedProducts);
+            }
+            if (!scannerModal.continuousMode) {
+              closeScannerModal();
+            }
+          } else {
+            showToast(`Barcode "${cleanCode}" belum ada. Membuka formulir produk baru...`, 'warning');
+            setEditingProduct(null);
+            setProductForm({ sku: cleanCode, name: '', costPrice: '', price: '', packPrice: '', stock: 1, category: 'Umum', supplier: '' });
+            setIsProductModalOpen(true);
+            closeScannerModal();
+          }
         } else {
           const matchedProduct = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (matchedProduct) {
@@ -496,7 +531,7 @@
             showToast(`Barcode "${cleanCode}" belum terdaftar di katalog!`, 'error');
           }
         }
-      }, [scannerModal.target, scannerModal.continuousMode, products, addToCart, closeScannerModal]);
+      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal]);
 
       // Memindai foto barcode dari Kamera Bawaan HP atau Galeri (dengan auto-downscale resolusi iPhone)
       const handleImageFileScan = async (e) => {
@@ -1683,11 +1718,24 @@
               {activeTab === 'inventory' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4 rounded-2xl border border-slate-200">
-                    <div><h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">Katalog Produk & Stok</h2><p className="text-xs text-slate-500 mt-0.5">Kelola data barang dagangan dan mutasi stok.</p></div>
-                    <div className="flex gap-2 w-full sm:w-auto">
-                      <button onClick={() => setShowRestockModal(true)} className="flex-1 sm:flex-none bg-emerald-600 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"><Icon name="plus" className="w-4 h-4" /> Masuk</button>
-                      <button onClick={() => setShowStockOutModal(true)} className="flex-1 sm:flex-none bg-rose-600 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"><Icon name="minus" className="w-4 h-4" /> Keluar</button>
-                      {currentUser.role !== 'kasir' && (<button onClick={() => { setEditingProduct(null); setProductForm({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' }); setIsProductModalOpen(true); }} className="flex-1 sm:flex-none bg-indigo-600 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"><Icon name="plus" className="w-4 h-4" /> + Produk</button>)}
+                    <div>
+                      <h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">Katalog Produk & Stok</h2>
+                      <p className="text-xs text-slate-500 mt-0.5">Kelola data barang dagangan dan tambah stok dengan scan cepat.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                      <button 
+                        onClick={() => openScanner('inventory_restock')} 
+                        className="flex-1 sm:flex-none bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all"
+                        title="Scan Barcode Barang untuk Menambah +1 Stok Otomatis"
+                      >
+                        <Icon name="camera" className="w-4 h-4" />
+                        <span>Scan Tambah Stok (+1)</span>
+                      </button>
+                      <button onClick={() => setShowRestockModal(true)} className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"><Icon name="plus" className="w-4 h-4" /> Masuk Form</button>
+                      <button onClick={() => setShowStockOutModal(true)} className="flex-1 sm:flex-none bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"><Icon name="minus" className="w-4 h-4" /> Keluar</button>
+                      {currentUser.role !== 'kasir' && (
+                        <button onClick={() => { setEditingProduct(null); setProductForm({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' }); setIsProductModalOpen(true); }} className="flex-1 sm:flex-none bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"><Icon name="plus" className="w-4 h-4" /> + Produk Baru</button>
+                      )}
                     </div>
                   </div>
 
