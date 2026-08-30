@@ -669,7 +669,54 @@
       const [supplierPayAmount, setSupplierPayAmount] = useState('');
 
       const [viewingTransaction, setViewingTransaction] = useState(null);
+      const [deleteTransactionModal, setDeleteTransactionModal] = useState({ show: false, transaction: null, restoreStock: true });
       const [reportPeriod, setReportPeriod] = useState('month');
+      const handleDeleteTransaction = (transaction, restoreStock = true) => {
+        if (currentUser.role !== 'owner') {
+          showToast('Hanya Owner yang berhak menghapus riwayat transaksi!', 'error');
+          return;
+        }
+
+        // 1. Kembalikan stok jika opsi dicentang
+        let updatedProducts = [...products];
+        if (restoreStock && transaction.items) {
+          transaction.items.forEach(item => {
+            const prodIndex = updatedProducts.findIndex(p => p.id === item.product.id);
+            if (prodIndex !== -1) {
+              updatedProducts[prodIndex] = {
+                ...updatedProducts[prodIndex],
+                stock: (updatedProducts[prodIndex].stock || 0) + (Number(item.qty) || 0)
+              };
+            }
+          });
+          setProducts(updatedProducts);
+        }
+
+        // 2. Koreksi piutang pelanggan jika transaksi berstatus Hutang dan ada sisa belum lunas
+        let updatedCustomers = [...customers];
+        if (transaction.customerId && transaction.paymentMethod === 'Hutang') {
+          const cust = updatedCustomers.find(c => c.id === transaction.customerId);
+          if (cust) {
+            const unpaidAmount = Math.max(0, transaction.total - (transaction.cash || 0));
+            updatedCustomers = updatedCustomers.map(c => 
+              c.id === cust.id ? { 
+                ...c, 
+                totalTrx: Math.max(0, (c.totalTrx || 1) - 1),
+                totalSpent: Math.max(0, (c.totalSpent || 0) - transaction.total),
+                debt: Math.max(0, (c.debt || 0) - unpaidAmount)
+              } : c
+            );
+            setCustomers(updatedCustomers);
+          }
+        }
+
+        // 3. Hapus transaksi dari daftar
+        const newTrxList = transactions.filter(t => t.id !== transaction.id);
+        setTransactions(newTrxList);
+        setViewingTransaction(null);
+        setDeleteTransactionModal({ show: false, transaction: null, restoreStock: true });
+        showToast(`Nota ${transaction.id} berhasil dihapus dari riwayat!`);
+      };
 
       const addToCart = useCallback((product) => {
         if (!product) return false;
@@ -2391,18 +2438,35 @@
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {transactions.length === 0 ? (<p className="text-center py-12 text-slate-400 text-xs col-span-full">Belum ada transaksi.</p>) : (
                       transactions.map(trx => (
-                        <div key={trx.id} onClick={() => setViewingTransaction(trx)} className={`p-4 rounded-3xl border shadow-sm cursor-pointer transition-all ${
+                        <div key={trx.id} className={`p-4 rounded-3xl border shadow-sm transition-all relative group ${
                           theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] hover:border-[#00d2d3]' : 'bg-white border-slate-200 hover:border-indigo-400'
                         }`}>
-                          <div className="flex justify-between items-start">
-                            <span className="font-extrabold text-xs text-[#00d2d3] bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-lg">{trx.id}</span>
-                            <span className="text-[10px] text-slate-400">{trx.date}</span>
+                          <div onClick={() => setViewingTransaction(trx)} className="cursor-pointer">
+                            <div className="flex justify-between items-start">
+                              <span className="font-extrabold text-xs text-[#00d2d3] bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-lg">{trx.id}</span>
+                              <span className="text-[10px] text-slate-400">{trx.date}</span>
+                            </div>
+                            <p className="text-lg font-black mt-2 text-white">{formatMoney(trx.total)}</p>
+                            <div className={`flex justify-between items-center text-xs mt-2 pt-2 border-t ${theme === 'dark' ? 'border-[#2a2f60] text-slate-400' : 'border-slate-100 text-slate-500'}`}>
+                              <span>{trx.customerName || 'Umum'}</span>
+                              <span className="font-bold">{trx.paymentMethod || 'Cash'}</span>
+                            </div>
                           </div>
-                          <p className="text-lg font-black mt-2 text-white">{formatMoney(trx.total)}</p>
-                          <div className={`flex justify-between items-center text-xs mt-2 pt-2 border-t ${theme === 'dark' ? 'border-[#2a2f60] text-slate-400' : 'border-slate-100 text-slate-500'}`}>
-                            <span>{trx.customerName || 'Umum'}</span>
-                            <span className="font-bold">{trx.paymentMethod || 'Cash'}</span>
-                          </div>
+                          
+                          {currentUser.role === 'owner' && (
+                            <div className="absolute top-3 right-3">
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTransactionModal({ show: true, transaction: trx, restoreStock: true });
+                                }}
+                                className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-xl transition-all cursor-pointer"
+                                title="Hapus Nota (Owner)"
+                              >
+                                <Icon name="trash-2" className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
                         </div>
                       ))
                     )}
@@ -2737,12 +2801,67 @@
                     {viewingTransaction.paymentMethod === 'Cash' && <div className="flex justify-between text-[11px] text-emerald-400"><span>Kembalian:</span><span>{formatMoney(viewingTransaction.change)}</span></div>}
                   </div>
                 </div>
-                <div className={`p-3 border-t grid grid-cols-2 gap-2 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                <div className={`p-3 border-t grid grid-cols-3 gap-2 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
                   <button onClick={() => {
                     let text = `*NOTA - ${storeSettings.name}*\nNo: ${viewingTransaction.id}\nTotal: ${formatMoney(viewingTransaction.total)}\n\nTerima kasih!`;
                     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-                  }} className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer"><Icon name="message-circle" className="w-4 h-4"/> WhatsApp</button>
-                  <button onClick={() => window.print()} className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md cursor-pointer"><Icon name="printer" className="w-4 h-4"/> Cetak</button>
+                  }} className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md cursor-pointer"><Icon name="message-circle" className="w-3.5 h-3.5"/> WA</button>
+                  <button onClick={() => window.print()} className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md cursor-pointer"><Icon name="printer" className="w-3.5 h-3.5"/> Cetak</button>
+                  {currentUser.role === 'owner' ? (
+                    <button onClick={() => {
+                      const trxToDel = viewingTransaction;
+                      setViewingTransaction(null);
+                      setDeleteTransactionModal({ show: true, transaction: trxToDel, restoreStock: true });
+                    }} className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md cursor-pointer"><Icon name="trash-2" className="w-3.5 h-3.5"/> Hapus</button>
+                  ) : (
+                    <div className="flex items-center justify-center text-[10px] text-slate-400 font-bold">Akses Kasir</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Konfirmasi Hapus Transaksi (Owner Only) */}
+          {deleteTransactionModal.show && deleteTransactionModal.transaction && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className={`rounded-3xl w-full max-w-sm p-6 space-y-4 border shadow-2xl animate-in zoom-in duration-200 ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+              }`}>
+                <div className="w-12 h-12 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto border border-rose-500/30">
+                  <Icon name="trash-2" className="w-6 h-6" />
+                </div>
+                <div className="text-center space-y-1">
+                  <h3 className="font-black text-base">Hapus Riwayat Nota #{deleteTransactionModal.transaction.id}?</h3>
+                  <p className="text-xs text-slate-400">Total: <span className="text-[#00d2d3] font-bold">{formatMoney(deleteTransactionModal.transaction.total)}</span></p>
+                </div>
+
+                <div className={`p-3 rounded-2xl border text-xs space-y-2 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={deleteTransactionModal.restoreStock} 
+                      onChange={(e) => setDeleteTransactionModal({ ...deleteTransactionModal, restoreStock: e.target.checked })} 
+                      className="rounded accent-indigo-600 w-4 h-4"
+                    />
+                    <span className="font-semibold text-slate-300">Kembalikan stok barang yang terjual ke inventaris</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <button 
+                    onClick={() => setDeleteTransactionModal({ show: false, transaction: null, restoreStock: true })} 
+                    className={`py-3 rounded-2xl font-bold text-xs border cursor-pointer ${
+                      theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteTransaction(deleteTransactionModal.transaction, deleteTransactionModal.restoreStock)} 
+                    className="py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-lg shadow-rose-500/20 cursor-pointer"
+                  >
+                    Ya, Hapus Nota
+                  </button>
                 </div>
               </div>
             </div>
