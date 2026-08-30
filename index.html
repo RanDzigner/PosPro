@@ -30,12 +30,13 @@
     }
   </script>
 
-  <!-- React 18, Babel, Lucide Icons, & Html5Qrcode -->
+  <!-- React 18, Babel, Lucide Icons, Html5Qrcode, & QRCode Generator -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
@@ -105,62 +106,6 @@
 <body class="bg-[#0f1228] text-slate-100 antialiased select-none dark">
   <div id="root"></div>
 
-  <script type="module">
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { 
-      getAuth, 
-      signInWithPopup, 
-      GoogleAuthProvider, 
-      signInWithCustomToken, 
-      signInAnonymously, 
-      onAuthStateChanged, 
-      signOut 
-    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { 
-      getFirestore, 
-      doc, 
-      setDoc, 
-      getDoc, 
-      onSnapshot 
-    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    let firebaseConfig = null;
-    if (typeof __firebase_config !== 'undefined') {
-      try { firebaseConfig = JSON.parse(__firebase_config); } catch (e) {}
-    }
-    if (!firebaseConfig) {
-      try {
-        const savedCustomConfig = localStorage.getItem('pospro_custom_firebase_config');
-        if (savedCustomConfig) firebaseConfig = JSON.parse(savedCustomConfig);
-      } catch (e) {}
-    }
-
-    if (firebaseConfig) {
-      try {
-        const app = initializeApp(firebaseConfig);
-        window.posAuth = getAuth(app);
-        window.posDb = getFirestore(app);
-        window.posGoogleProvider = new GoogleAuthProvider();
-        window.posSignOut = signOut;
-        window.posSignInWithPopup = signInWithPopup;
-        window.posDoc = doc;
-        window.posSetDoc = setDoc;
-        window.posGetDoc = getDoc;
-        window.posOnSnapshot = onSnapshot;
-        window.posAppId = typeof __app_id !== 'undefined' ? __app_id : 'pospro-store-app';
-        window.posInitialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-        window.posSignInWithCustomToken = signInWithCustomToken;
-        window.posSignInAnonymously = signInAnonymously;
-        window.posOnAuthStateChanged = onAuthStateChanged;
-        window.isFirebaseReady = true;
-      } catch (err) {
-        window.isFirebaseReady = false;
-      }
-    } else {
-      window.isFirebaseReady = false;
-    }
-  </script>
-
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef, useCallback, Component } = React;
 
@@ -183,11 +128,11 @@
                 <div className="w-14 h-14 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto">
                   <i data-lucide="alert-triangle" className="w-8 h-8"></i>
                 </div>
-                <h2 className="text-lg font-black text-white">Memuat Ulang Aplikasi</h2>
+                <h2 className="text-lg font-black text-white">Memuat Ulang Sistem Kasir</h2>
                 <p className="text-xs text-slate-400">Data Anda tersimpan dengan aman. Klik tombol di bawah untuk memuat ulang sistem.</p>
                 <button 
                   onClick={() => window.location.reload()} 
-                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-lg transition-all"
+                  className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-lg transition-all cursor-pointer"
                 >
                   Muat Ulang Sekarang
                 </button>
@@ -293,20 +238,53 @@
       } catch (e) {}
     };
 
-    // Mesin Relay Cloud Global untuk Sinkronisasi Otomatis Antar Perangkat (PC & HP)
-    const CLOUD_RELAY_BASE = 'https://api.restful-api.dev/objects';
+    // Helper Pembuat Kunci Sinkronisasi Awan Unik
+    const makeSyncKey = (email, password) => {
+      const cleanEmail = String(email || '').trim().toLowerCase();
+      const cleanPass = String(password || '').trim();
+      const combined = `${cleanEmail}___${cleanPass}`;
+      let hash = 0;
+      for (let i = 0; i < combined.length; i++) {
+        hash = (hash << 5) - hash + combined.charCodeAt(i);
+        hash |= 0;
+      }
+      return `pospro_store_${Math.abs(hash)}_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    };
 
     function App() {
-      const [authSession, setAuthSession] = useState(() => loadFromLocal('pospro_current_auth_user', null));
+      // Sesi Akun Toko Terhubung
+      const [authSession, setAuthSession] = useState(() => {
+        // Cek URL params jika discan dari QR HP
+        const params = new URLSearchParams(window.location.search);
+        const qrEmail = params.get('sync_email');
+        const qrPass = params.get('sync_pass');
+        if (qrEmail && qrPass) {
+          const userObj = {
+            email: qrEmail.trim().toLowerCase(),
+            password: qrPass.trim(),
+            displayName: qrEmail.split('@')[0],
+            isDemo: false,
+            syncKey: makeSyncKey(qrEmail, qrPass),
+            lastLogin: new Date().toISOString()
+          };
+          saveToLocal('pospro_current_auth_user', userObj);
+          // Bersihkan URL tanpa reload
+          window.history.replaceState({}, document.title, window.location.pathname);
+          return userObj;
+        }
+        return loadFromLocal('pospro_current_auth_user', null);
+      });
+
       const [isAuthLoading, setIsAuthLoading] = useState(false);
       const [isCloudSyncing, setIsCloudSyncing] = useState(false);
       const [lastSyncTime, setLastSyncTime] = useState(null);
-      const [cloudStatus, setCloudStatus] = useState('connected'); // 'connected' | 'syncing' | 'offline'
-
-      const [showLoginModal, setShowLoginModal] = useState(false);
-      const [loginEmailInput, setLoginEmailInput] = useState('');
-      const [loginNameInput, setLoginNameInput] = useState('');
-      const [loginPinInput, setLoginPinInput] = useState('');
+      
+      // Form Login Input
+      const [inputEmail, setInputEmail] = useState('');
+      const [inputPassword, setInputPassword] = useState('');
+      const [inputStoreName, setInputStoreName] = useState('');
+      const [loginTab, setLoginTab] = useState('login'); // 'login' | 'register'
+      const [showQrConnectModal, setShowQrConnectModal] = useState(false);
 
       const [theme, setTheme] = useState(() => loadFromLocal('pospro_theme', 'dark'));
 
@@ -339,7 +317,7 @@
       }, []);
 
       const isDemoUser = authSession?.isDemo === true;
-      const userStoragePrefix = authSession ? `pospro_user_${authSession.uid}` : 'pospro_user_guest';
+      const userStoragePrefix = authSession ? `pospro_data_${authSession.syncKey || authSession.email || 'guest'}` : 'pospro_data_guest';
 
       const [currentUserRole, setCurrentUserRole] = useState({ 
         name: authSession?.displayName || 'Owner Toko', 
@@ -363,7 +341,7 @@
       const [products, setProducts] = useState(() => {
         const saved = loadFromLocal(`${userStoragePrefix}_products`, null);
         if (saved) return saved;
-        return isDemoUser ? defaultProducts : defaultProducts;
+        return defaultProducts;
       });
 
       const [transactions, setTransactions] = useState(() => {
@@ -398,19 +376,18 @@
         ] : [];
       });
 
-      // --- MESIN SINKRONISASI CLOUD OTOMATIS ANTARA PC & HP ---
       const isRemoteUpdatingRef = useRef(false);
       const lastLocalUpdateTimestampRef = useRef(Date.now());
-      const cloudStoreRecordIdRef = useRef(loadFromLocal(`pospro_cloud_rec_${authSession?.uid}`, null));
+      const cloudStoreRecordIdRef = useRef(loadFromLocal(`pospro_cloud_rec_${authSession?.syncKey}`, null));
 
-      // 1. Sinkronisasi Data Lokal ke Cloud
+      // Kirim Data Terbaru ke Cloud
       const pushStateToCloud = useCallback(async () => {
         if (!authSession || authSession.isDemo || isRemoteUpdatingRef.current) return;
         setIsCloudSyncing(true);
 
         const storePayload = {
           updatedAt: Date.now(),
-          ownerUid: authSession.uid,
+          syncKey: authSession.syncKey,
           ownerEmail: authSession.email,
           storeSettings,
           products,
@@ -423,20 +400,12 @@
         };
 
         try {
-          // A. Jika Firebase Firestore Aktif
-          if (window.isFirebaseReady && window.posDb) {
-            const appId = window.posAppId || 'pospro-store-app';
-            const userStoreDocRef = window.posDoc(window.posDb, 'artifacts', appId, 'users', authSession.uid, 'store_data', 'main_store_data');
-            await window.posSetDoc(userStoreDocRef, storePayload, { merge: true });
-          }
+          const cloudChannelName = `store_${authSession.syncKey}`;
+          let recId = cloudStoreRecordIdRef.current;
 
-          // B. Global Cloud Relay (Menjamin PC dan HP Tersinkronisasi Otomatis di Vercel/Hosting Manapun)
-          const cloudChannelName = `pospro_store_${authSession.uid.replace(/[^a-zA-Z0-9_]/g, '_')}`;
-          
-          let existingRecordId = cloudStoreRecordIdRef.current;
-          if (existingRecordId) {
+          if (recId) {
             try {
-              const res = await fetch(`${CLOUD_RELAY_BASE}/${existingRecordId}`, {
+              const putRes = await fetch(`https://api.restful-api.dev/objects/${recId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -444,14 +413,14 @@
                   data: storePayload
                 })
               });
-              if (!res.ok) existingRecordId = null;
+              if (!putRes.ok) recId = null;
             } catch (e) {
-              existingRecordId = null;
+              recId = null;
             }
           }
 
-          if (!existingRecordId) {
-            const createRes = await fetch(CLOUD_RELAY_BASE, {
+          if (!recId) {
+            const postRes = await fetch('https://api.restful-api.dev/objects', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
@@ -459,108 +428,86 @@
                 data: storePayload
               })
             });
-            if (createRes.ok) {
-              const resData = await createRes.json();
+            if (postRes.ok) {
+              const resData = await postRes.json();
               if (resData.id) {
                 cloudStoreRecordIdRef.current = resData.id;
-                saveToLocal(`pospro_cloud_rec_${authSession.uid}`, resData.id);
+                saveToLocal(`pospro_cloud_rec_${authSession.syncKey}`, resData.id);
               }
             }
           }
 
           setLastSyncTime(new Date());
-          setCloudStatus('connected');
         } catch (err) {
-          console.warn("Cloud push notice:", err);
-          setCloudStatus('connected');
+          console.warn("Cloud push warning:", err);
         } finally {
           setIsCloudSyncing(false);
         }
       }, [authSession, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
 
-      // 2. Tarik Data Terbaru dari Cloud (Mendengarkan Perubahan dari PC atau HP)
+      // Tarik Data Terbaru dari Perangkat Lain (PC atau HP)
       const pullStateFromCloud = useCallback(async (isManual = false) => {
         if (!authSession || authSession.isDemo || isRemoteUpdatingRef.current) return;
 
         try {
-          // A. Cek Firebase Firestore
-          if (window.isFirebaseReady && window.posDb) {
-            const appId = window.posAppId || 'pospro-store-app';
-            const userStoreDocRef = window.posDoc(window.posDb, 'artifacts', appId, 'users', authSession.uid, 'store_data', 'main_store_data');
-            const snap = await window.posGetDoc(userStoreDocRef);
-            if (snap.exists()) {
-              const cloudData = snap.data();
-              if (cloudData.updatedAt && cloudData.updatedAt > lastLocalUpdateTimestampRef.current) {
-                applyCloudDataToLocal(cloudData);
-                return;
-              }
-            }
-          }
-
-          // B. Cek Cloud Relay Global
-          const cloudChannelName = `pospro_store_${authSession.uid.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+          const cloudChannelName = `store_${authSession.syncKey}`;
           let recId = cloudStoreRecordIdRef.current;
+          let remoteStoreData = null;
 
-          let cloudData = null;
           if (recId) {
-            const res = await fetch(`${CLOUD_RELAY_BASE}/${recId}`);
+            const res = await fetch(`https://api.restful-api.dev/objects/${recId}`);
             if (res.ok) {
               const json = await res.json();
-              cloudData = json.data;
+              remoteStoreData = json.data;
             }
           }
 
-          if (!cloudData) {
-            // Cari kanal toko berdasarkan nama akun Google
-            const searchRes = await fetch(CLOUD_RELAY_BASE);
+          if (!remoteStoreData) {
+            const searchRes = await fetch('https://api.restful-api.dev/objects');
             if (searchRes.ok) {
               const list = await searchRes.json();
               if (Array.isArray(list)) {
                 const found = list.find(item => item.name === cloudChannelName);
                 if (found && found.data) {
-                  cloudData = found.data;
+                  remoteStoreData = found.data;
                   cloudStoreRecordIdRef.current = found.id;
-                  saveToLocal(`pospro_cloud_rec_${authSession.uid}`, found.id);
+                  saveToLocal(`pospro_cloud_rec_${authSession.syncKey}`, found.id);
                 }
               }
             }
           }
 
-          if (cloudData && cloudData.updatedAt) {
-            if (cloudData.updatedAt > lastLocalUpdateTimestampRef.current) {
-              applyCloudDataToLocal(cloudData);
-              if (isManual) showToast('Data terbaru dari cloud berhasil disinkronkan!');
+          if (remoteStoreData && remoteStoreData.updatedAt) {
+            if (remoteStoreData.updatedAt > lastLocalUpdateTimestampRef.current) {
+              isRemoteUpdatingRef.current = true;
+              lastLocalUpdateTimestampRef.current = remoteStoreData.updatedAt;
+
+              if (remoteStoreData.storeSettings) setStoreSettings(remoteStoreData.storeSettings);
+              if (remoteStoreData.products) setProducts(remoteStoreData.products);
+              if (remoteStoreData.transactions) setTransactions(remoteStoreData.transactions);
+              if (remoteStoreData.customers) setCustomers(remoteStoreData.customers);
+              if (remoteStoreData.suppliers) setSuppliers(remoteStoreData.suppliers);
+              if (remoteStoreData.expenses) setExpenses(remoteStoreData.expenses);
+              if (remoteStoreData.draftOrders) setDraftOrders(remoteStoreData.draftOrders);
+              if (remoteStoreData.rolePasswords) setRolePasswords(remoteStoreData.rolePasswords);
+
+              setLastSyncTime(new Date());
+              showToast('⚡ Data diperbarui dari perangkat lain!');
+
+              setTimeout(() => {
+                isRemoteUpdatingRef.current = false;
+              }, 400);
             } else if (isManual) {
-              showToast('Data sudah versi paling baru.');
+              showToast('Data sudah versi terbaru.');
             }
           }
           setLastSyncTime(new Date());
-          setCloudStatus('connected');
         } catch (err) {
           if (isManual) showToast('Gagal terhubung ke cloud server.', 'error');
         }
       }, [authSession]);
 
-      const applyCloudDataToLocal = (cloudData) => {
-        isRemoteUpdatingRef.current = true;
-        lastLocalUpdateTimestampRef.current = cloudData.updatedAt;
-
-        if (cloudData.storeSettings) setStoreSettings(cloudData.storeSettings);
-        if (cloudData.products) setProducts(cloudData.products);
-        if (cloudData.transactions) setTransactions(cloudData.transactions);
-        if (cloudData.customers) setCustomers(cloudData.customers);
-        if (cloudData.suppliers) setSuppliers(cloudData.suppliers);
-        if (cloudData.expenses) setExpenses(cloudData.expenses);
-        if (cloudData.draftOrders) setDraftOrders(cloudData.draftOrders);
-        if (cloudData.rolePasswords) setRolePasswords(cloudData.rolePasswords);
-
-        setLastSyncTime(new Date());
-        setTimeout(() => {
-          isRemoteUpdatingRef.current = false;
-        }, 500);
-      };
-
-      // Simpan Perubahan ke Local Cache & Memicu Cloud Push Otomatis
+      // Simpan Perubahan ke Cache Lokal & Picu Kirim ke Cloud
       useEffect(() => {
         if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_settings`, storeSettings);
@@ -576,111 +523,75 @@
           lastLocalUpdateTimestampRef.current = Date.now();
           const timer = setTimeout(() => {
             pushStateToCloud();
-          }, 1000);
+          }, 800);
           return () => clearTimeout(timer);
         }
       }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, authSession, pushStateToCloud]);
 
-      // Polling Otomatis Setiap 4 Detik agar Perubahan di HP langsung muncul di PC (dan sebaliknya)
+      // Polling Real-time Setiap 2.5 Detik agar Transaksi di HP Langsung Muncul di PC
       useEffect(() => {
         if (!authSession || authSession.isDemo) return;
-        
-        // Tarik data awal saat aplikasi baru dibuka
         pullStateFromCloud();
-
         const interval = setInterval(() => {
           pullStateFromCloud();
-        }, 4000);
-
+        }, 2500);
         return () => clearInterval(interval);
-      }, [authSession?.uid, pullStateFromCloud]);
+      }, [authSession?.syncKey, pullStateFromCloud]);
 
-      const handleOfficialGooglePopup = async () => {
-        setIsAuthLoading(true);
-        try {
-          if (window.posAuth && window.posSignInWithPopup && window.posGoogleProvider) {
-            const result = await window.posSignInWithPopup(window.posAuth, window.posGoogleProvider);
-            const user = result.user;
-            if (user) {
-              const googleUserObj = {
-                uid: user.uid,
-                displayName: user.displayName || user.email?.split('@')[0] || 'Pemilik Toko',
-                email: user.email,
-                photoURL: user.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.displayName || 'Toko')}&backgroundColor=4f46e5,06b6d4`,
-                isDemo: false,
-                lastLogin: new Date().toISOString()
-              };
-
-              setAuthSession(googleUserObj);
-              saveToLocal('pospro_current_auth_user', googleUserObj);
-              showToast(`Selamat datang, ${googleUserObj.displayName}! Akun Google terhubung.`);
-              setIsAuthLoading(false);
-              return;
-            }
-          }
-          throw new Error("Popup tidak didukung, menggunakan form Google Sync ID");
-        } catch (err) {
-          setShowLoginModal(true);
-        } finally {
-          setIsAuthLoading(false);
-        }
-      };
-
-      const handleDirectGoogleLogin = (e) => {
+      const handleAccountLogin = (e) => {
         e.preventDefault();
-        if (!loginEmailInput || !loginEmailInput.includes('@')) {
-          showToast('Masukkan email Google yang valid (@gmail.com)', 'error');
+        if (!inputEmail || !inputEmail.includes('@')) {
+          showToast('Masukkan alamat Email yang valid (@gmail.com)', 'error');
+          return;
+        }
+        if (!inputPassword || inputPassword.length < 4) {
+          showToast('Password minimal 4 karakter!', 'error');
           return;
         }
 
-        const cleanEmail = loginEmailInput.trim().toLowerCase();
-        const rawName = loginNameInput.trim() || cleanEmail.split('@')[0];
+        setIsAuthLoading(true);
+        const cleanEmail = inputEmail.trim().toLowerCase();
+        const cleanPass = inputPassword.trim();
+        const rawName = inputStoreName.trim() || cleanEmail.split('@')[0];
         const formattedName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
-        
-        // ID Unik yang SAMA di PC dan HP berdasarkan email Google
-        const sharedUid = `google_${cleanEmail.replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const syncKey = makeSyncKey(cleanEmail, cleanPass);
 
         const userObj = {
-          uid: sharedUid,
-          displayName: formattedName,
           email: cleanEmail,
-          photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(formattedName)}&backgroundColor=4f46e5,06b6d4,8b5cf6`,
+          password: cleanPass,
+          displayName: formattedName,
+          photoURL: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(formattedName)}&backgroundColor=4f46e5,00d2d3,ff4b8b`,
           isDemo: false,
-          pin: loginPinInput || '1234',
+          syncKey: syncKey,
           lastLogin: new Date().toISOString()
         };
 
         setAuthSession(userObj);
         saveToLocal('pospro_current_auth_user', userObj);
-        setShowLoginModal(false);
-        setLoginEmailInput('');
-        setLoginNameInput('');
-        showToast(`Akun ${cleanEmail} aktif! Data otomatis sinkron PC & HP.`);
+        setIsAuthLoading(false);
+        showToast(`Toko aktif! Masukkan email & password yang sama di HP untuk sinkron.`);
       };
 
       const handleDemoLogin = () => {
         const demoUser = {
-          uid: 'demo_guest_store',
-          displayName: 'Akun Demo Toko',
           email: 'demo@pospro.id',
+          password: 'demo',
+          displayName: 'Akun Demo Toko',
           photoURL: '',
-          isDemo: true
+          isDemo: true,
+          syncKey: 'pospro_demo_mode'
         };
         setAuthSession(demoUser);
         saveToLocal('pospro_current_auth_user', demoUser);
         showToast('Memasuki Mode Demo (Coba-Coba Fitur)');
       };
 
-      const handleLogout = async () => {
-        if (window.posAuth && window.posSignOut) {
-          try { await window.posSignOut(window.posAuth); } catch(e){}
-        }
+      const handleLogout = () => {
         localStorage.removeItem('pospro_current_auth_user');
         setAuthSession(null);
         showToast('Berhasil keluar akun.');
       };
 
-      // State Kasir & Transaksi
       const [cart, setCart] = useState([]);
       const [discount, setDiscount] = useState(0);
       const [cashReceived, setCashReceived] = useState('');
@@ -1366,126 +1277,101 @@
             <div className="absolute top-1/4 -left-20 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none"></div>
             <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none"></div>
 
-            <div className="bg-[#181b3b]/90 backdrop-blur-xl border border-[#2a2f60] p-6 sm:p-10 rounded-3xl max-w-md w-full shadow-2xl z-10 relative text-center space-y-6">
-              <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 p-0.5 mx-auto shadow-xl">
-                <div className="w-full h-full bg-[#181b3b] rounded-[22px] flex items-center justify-center">
-                  <Icon name="store" className="w-8 h-8 text-[#00d2d3]" />
+            <div className="bg-[#181b3b]/95 backdrop-blur-xl border border-[#2a2f60] p-6 sm:p-8 rounded-3xl max-w-md w-full shadow-2xl z-10 relative space-y-5">
+              <div className="text-center space-y-2">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 p-0.5 mx-auto shadow-xl">
+                  <div className="w-full h-full bg-[#181b3b] rounded-[14px] flex items-center justify-center">
+                    <Icon name="store" className="w-7 h-7 text-[#00d2d3]" />
+                  </div>
                 </div>
+                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">POSPro Cloud Kasir</h1>
+                <p className="text-xs text-slate-400">Masuk Akun Toko untuk Sinkronisasi Otomatis PC & HP</p>
               </div>
 
-              <div>
-                <h1 className="text-2xl font-black tracking-tight text-white">POSPro Cloud Kasir</h1>
-                <p className="text-xs text-slate-400 mt-1">Sistem Kasir & Sinkronisasi Otomatis Antara PC & HP</p>
-              </div>
-
-              <div className="p-4 rounded-2xl bg-[#0f1228]/80 border border-[#2a2f60] text-left space-y-2">
+              <div className="p-3.5 rounded-2xl bg-[#0f1228] border border-[#2a2f60] text-left space-y-1.5">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>Sinkronisasi Otomatis PC & HP Aktif</span>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span>Kunci Sinkronisasi PC & HP</span>
                 </div>
-                <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Gunakan email Google yang <strong>SAMA</strong> di PC kasir dan di HP Anda. Setiap transaksi, barang baru, dan perubahan stok akan langsung sinkron secara otomatis.
+                <p className="text-[11px] text-slate-300 leading-relaxed">
+                  Masukkan <strong>Email Toko</strong> dan <strong>Password</strong> yang <strong>SAMA</strong> di Komputer dan di HP. Seluruh data kasir & stok otomatis terhubung secara langsung.
                 </p>
               </div>
 
-              <div className="space-y-3 pt-1">
-                <button
-                  onClick={handleOfficialGooglePopup}
-                  disabled={isAuthLoading}
-                  className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-3 shadow-xl hover:shadow-white/10 active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
-                >
-                  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                  </svg>
-                  <span>{isAuthLoading ? 'Menghubungkan...' : 'Masuk dengan Akun Google'}</span>
-                </button>
+              <form onSubmit={handleAccountLogin} className="space-y-3 pt-1">
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1">
+                    Email Toko (Google / Bebas) *
+                  </label>
+                  <div className="relative">
+                    <Icon name="mail" className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input 
+                      type="email"
+                      required
+                      placeholder="contoh: tokoberkah@gmail.com"
+                      value={inputEmail}
+                      onChange={(e) => setInputEmail(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3] font-medium"
+                    />
+                  </div>
+                </div>
 
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1">
+                    Password / PIN Keamanan Toko *
+                  </label>
+                  <div className="relative">
+                    <Icon name="lock" className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input 
+                      type="password"
+                      required
+                      placeholder="Masukkan password toko..."
+                      value={inputPassword}
+                      onChange={(e) => setInputPassword(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3] font-medium"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-slate-300 block mb-1">
+                    Nama Toko Anda (Opsional)
+                  </label>
+                  <div className="relative">
+                    <Icon name="store" className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input 
+                      type="text"
+                      placeholder="contoh: Toko Berkah Abadi"
+                      value={inputStoreName}
+                      onChange={(e) => setInputStoreName(e.target.value)}
+                      className="w-full pl-10 pr-3 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3] font-medium"
+                    />
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isAuthLoading}
+                  className="w-full py-3 px-4 bg-gradient-to-r from-indigo-600 via-purple-600 to-cyan-500 hover:from-indigo-700 hover:to-cyan-600 text-white rounded-xl font-black text-xs sm:text-sm flex items-center justify-center gap-2 shadow-lg active:scale-98 transition-all cursor-pointer mt-2"
+                >
+                  <Icon name="cloud-lightning" className="w-4 h-4" />
+                  <span>{isAuthLoading ? 'Menyambungkan...' : 'Masuk & Sinkronkan PC + HP'}</span>
+                </button>
+              </form>
+
+              <div className="pt-2 border-t border-[#2a2f60] text-center space-y-2">
                 <button
                   onClick={handleDemoLogin}
-                  className="w-full py-3 px-4 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border border-[#2a2f60] active:scale-98 transition-all cursor-pointer"
+                  className="w-full py-2.5 px-3 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 border border-[#2a2f60] transition-all cursor-pointer"
                 >
-                  <Icon name="sparkles" className="w-4 h-4 text-amber-400" />
+                  <Icon name="sparkles" className="w-3.5 h-3.5 text-amber-400" />
                   <span>Coba Gratis (Mode Demo Tanpa Akun)</span>
                 </button>
-              </div>
-
-              <div className="pt-2 text-[10px] text-slate-500 font-medium">
-                Data Terenkripsi Aman • Akses Real-Time di Semua Gadget
+                <p className="text-[10px] text-slate-400">
+                  Data Terenkripsi Aman • Akses Real-Time di Semua Gadget
+                </p>
               </div>
             </div>
-
-            {/* Modal Dialog Akun Google (Input Email Bersama untuk Sinkronisasi PC & HP) */}
-            {showLoginModal && (
-              <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-                <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 text-left">
-                  <div className="flex items-center justify-between border-b border-[#2a2f60] pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24">
-                        <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                        <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                        <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                        <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                      </svg>
-                      <div>
-                        <h3 className="text-sm font-black text-white">Hubungkan Akun Google Toko</h3>
-                        <p className="text-[10px] text-slate-400">Ketik email yang sama di PC & HP agar data otomatis sinkron</p>
-                      </div>
-                    </div>
-                    <button onClick={() => setShowLoginModal(false)} className="p-1 text-slate-400 hover:text-white rounded-lg">
-                      <Icon name="x" className="w-5 h-5"/>
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleDirectGoogleLogin} className="space-y-3 pt-1">
-                    <div>
-                      <label className="text-xs font-bold text-slate-300 block mb-1">
-                        Email Google Anda *
-                      </label>
-                      <input 
-                        type="email"
-                        required
-                        placeholder="contoh: nama.toko@gmail.com"
-                        value={loginEmailInput}
-                        onChange={(e) => setLoginEmailInput(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3]"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="text-xs font-bold text-slate-300 block mb-1">
-                        Nama Pemilik / Nama Toko (Opsional)
-                      </label>
-                      <input 
-                        type="text"
-                        placeholder="contoh: Toko Berkah Abadi"
-                        value={loginNameInput}
-                        onChange={(e) => setLoginNameInput(e.target.value)}
-                        className="w-full px-3.5 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3]"
-                      />
-                    </div>
-
-                    <div className="pt-2 flex gap-2">
-                      <button 
-                        type="button" 
-                        onClick={() => setShowLoginModal(false)}
-                        className="flex-1 py-2.5 bg-[#21254d] text-slate-300 hover:text-white rounded-xl text-xs font-bold"
-                      >
-                        Batal
-                      </button>
-                      <button 
-                        type="submit"
-                        className="flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl text-xs font-black shadow-lg"
-                      >
-                        Sinkronkan Toko
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
           </div>
         );
       }
@@ -1570,50 +1456,39 @@
 
         return (
           <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 max-w-7xl mx-auto">
-            {isDemoUser && (
-              <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-purple-500/20 border border-amber-500/40 p-3 sm:p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-2xl bg-amber-500/30 text-amber-300 flex items-center justify-center shrink-0">
-                    <Icon name="sparkles" className="w-5 h-5"/>
-                  </div>
-                  <div>
-                    <h4 className="text-xs sm:text-sm font-black text-white">Anda Sedang Menggunakan Mode Demo</h4>
-                    <p className="text-[11px] text-amber-200/80">Hubungkan Akun Google Anda agar data kasir dan stok otomatis sama di PC & HP.</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={() => setShowLoginModal(true)} 
-                  className="w-full sm:w-auto px-4 py-2 bg-white text-slate-900 hover:bg-slate-100 rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-md shrink-0 cursor-pointer"
-                >
-                  <Icon name="log-in" className="w-4 h-4"/>
-                  <span>Hubungkan Akun Google</span>
-                </button>
-              </div>
-            )}
-
-            {/* Status Indikator Cloud Sync Real-Time */}
+            {/* Indikator Status Cloud Sync Antar PC & HP */}
             <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs ${
               theme === 'dark' ? 'bg-[#181b3b]/90 border-[#2a2f60]' : 'bg-white border-slate-200 shadow-sm'
             }`}>
               <div className="flex items-center gap-2.5">
                 <span className={`w-3 h-3 rounded-full shrink-0 ${isCloudSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
                 <div>
-                  <p className="font-extrabold text-xs">
-                    {isCloudSyncing ? 'Menyinkronkan data antar-perangkat...' : 'Sinkronisasi Real-Time Aktif (PC & HP Terhubung)'}
+                  <p className="font-extrabold text-xs flex items-center gap-1.5">
+                    <span>{isCloudSyncing ? 'Menyinkronkan data dengan cloud...' : 'Sinkronisasi Real-Time PC & HP Aktif'}</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono">Live 2s</span>
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Akun: <span className="text-cyan-400 font-bold">{authSession?.email || 'Mode Demo'}</span> • Terakhir sinkron: {lastSyncTime ? lastSyncTime.toLocaleTimeString('id-ID') : 'Baru saja'}
+                    Akun Toko: <span className="text-cyan-400 font-bold">{authSession?.email}</span> • Terakhir sinkron: {lastSyncTime ? lastSyncTime.toLocaleTimeString('id-ID') : 'Baru saja'}
                   </p>
                 </div>
               </div>
-              <button 
-                onClick={() => pullStateFromCloud(true)}
-                disabled={isCloudSyncing}
-                className="px-3.5 py-1.5 bg-[#21254d] hover:bg-indigo-600 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer shrink-0"
-              >
-                <Icon name="refresh-cw" className={`w-3.5 h-3.5 ${isCloudSyncing ? 'animate-spin' : ''}`} />
-                <span>Sinkronkan Sekarang</span>
-              </button>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setShowQrConnectModal(true)}
+                  className="px-3 py-1.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
+                >
+                  <Icon name="qr-code" className="w-3.5 h-3.5" />
+                  <span>Sambungkan HP via QR</span>
+                </button>
+                <button 
+                  onClick={() => pullStateFromCloud(true)}
+                  disabled={isCloudSyncing}
+                  className="px-3 py-1.5 bg-[#21254d] hover:bg-indigo-600 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer shrink-0"
+                >
+                  <Icon name="refresh-cw" className={`w-3.5 h-3.5 ${isCloudSyncing ? 'animate-spin' : ''}`} />
+                  <span>Sinkron</span>
+                </button>
+              </div>
             </div>
 
             {/* BARIS 1: 3 Donut Chart Kategori & 4 Kotak Metrik KPI */}
@@ -1881,7 +1756,7 @@
                   <span className="bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xs font-black px-2.5 py-1 rounded-full">
                     {totalItemCount} Item
                   </span>
-                  <button onClick={() => setShowMobileCartDrawer(false)} className="lg:hidden p-1 text-slate-400 hover:text-white bg-slate-800 rounded-lg">
+                  <button onClick={() => setShowMobileCartDrawer(false)} className="lg:hidden p-1 text-slate-400 hover:text-white bg-slate-800 rounded-lg cursor-pointer">
                     <Icon name="x" className="w-5 h-5"/>
                   </button>
                 </div>
@@ -1919,7 +1794,7 @@
                           {item.discountRp > 0 && <span className="text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded font-bold">- {formatMoney(item.discountRp)}</span>}
                         </div>
                       </div>
-                      <button onClick={() => removeFromCart(item.product.id)} className="p-1 text-slate-400 hover:text-rose-400 transition-colors">
+                      <button onClick={() => removeFromCart(item.product.id)} className="p-1 text-slate-400 hover:text-rose-400 transition-colors cursor-pointer">
                         <Icon name="trash-2" className="w-4 h-4" />
                       </button>
                     </div>
@@ -1937,9 +1812,9 @@
                         />
                       </div>
                       <div className={`flex items-center rounded-xl border p-0.5 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-100 border-slate-200'}`}>
-                        <button onClick={() => updateQty(item.product.id, -1)} className="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-lg font-bold text-sm">-</button>
+                        <button onClick={() => updateQty(item.product.id, -1)} className="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-lg font-bold text-sm cursor-pointer">-</button>
                         <span className="w-7 text-center font-bold text-xs">{item.qty}</span>
-                        <button onClick={() => updateQty(item.product.id, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-lg font-bold text-sm">+</button>
+                        <button onClick={() => updateQty(item.product.id, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-lg font-bold text-sm cursor-pointer">+</button>
                       </div>
                     </div>
                   </div>
@@ -1982,9 +1857,9 @@
               {(paymentMethod === 'Cash' || paymentMethod === 'Hutang') && (
                 <div className="space-y-2">
                   <div className="flex gap-1.5">
-                    <button onClick={() => handleQuickCash(grandTotal)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>Uang Pas</button>
-                    <button onClick={() => handleQuickCash(50000)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>50k</button>
-                    <button onClick={() => handleQuickCash(100000)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>100k</button>
+                    <button onClick={() => handleQuickCash(grandTotal)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>Uang Pas</button>
+                    <button onClick={() => handleQuickCash(50000)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>50k</button>
+                    <button onClick={() => handleQuickCash(100000)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>100k</button>
                   </div>
                   <input 
                     type="number" 
@@ -2277,7 +2152,7 @@
               </div>
             </div>
             
-            {/* Profil Akun Google Terhubung */}
+            {/* Profil Akun Toko */}
             <div className="px-4 mb-2">
               <div className={`p-3 rounded-2xl border flex items-center justify-between ${
                 theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50 border-slate-200'
@@ -2560,16 +2435,16 @@
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#21254d]/50 border border-[#2a2f60]">
                       <div>
                         <p className="text-xs font-bold">
-                          Akun: {authSession?.displayName || 'Toko'} {isDemoUser ? '(Mode Demo)' : `(${authSession?.email || 'Google User'})`}
+                          Akun: {authSession?.displayName || 'Toko'} {isDemoUser ? '(Mode Demo)' : `(${authSession?.email})`}
                         </p>
                         <p className="text-[11px] text-emerald-400 font-semibold mt-0.5">
-                          ✅ Jalur Cloud Aktif: Transaksi di HP & PC otomatis sinkron
+                          ✅ Jalur Cloud Aktif: Transaksi di HP & PC otomatis sinkron setiap 2 detik
                         </p>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => pullStateFromCloud(true)} className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1">
-                          <Icon name="refresh-cw" className="w-3.5 h-3.5"/>
-                          <span>Sinkron</span>
+                        <button onClick={() => setShowQrConnectModal(true)} className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5">
+                          <Icon name="qr-code" className="w-3.5 h-3.5"/>
+                          <span>QR Sambung HP</span>
                         </button>
                         <button onClick={handleLogout} className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
                           Keluar Akun
@@ -2645,6 +2520,52 @@
               })}
             </div>
           </div>
+
+          {}
+          {showQrConnectModal && (
+            <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
+              <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl text-center space-y-4">
+                <div className="flex items-center justify-between border-b border-[#2a2f60] pb-3">
+                  <div className="flex items-center gap-2">
+                    <Icon name="qr-code" className="w-5 h-5 text-[#00d2d3]" />
+                    <h3 className="text-sm font-black text-white">Sambungkan HP Kasir</h3>
+                  </div>
+                  <button onClick={() => setShowQrConnectModal(false)} className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer">
+                    <Icon name="x" className="w-5 h-5"/>
+                  </button>
+                </div>
+
+                <div className="p-3 bg-white rounded-2xl inline-block mx-auto shadow-inner">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(
+                      `${window.location.origin}${window.location.pathname}?sync_email=${encodeURIComponent(authSession.email)}&sync_pass=${encodeURIComponent(authSession.password)}`
+                    )}`}
+                    alt="QR Code Sambung HP"
+                    className="w-44 h-44 mx-auto rounded-lg"
+                  />
+                </div>
+
+                <div className="text-left bg-[#0f1228] p-3 rounded-2xl border border-[#2a2f60] space-y-1.5 text-xs">
+                  <p className="font-bold text-white flex items-center gap-1.5">
+                    <span>📱 Petunjuk Buka di HP:</span>
+                  </p>
+                  <p className="text-[11px] text-slate-300">
+                    1. Buka kamera HP Anda, arahkan ke QR Code di atas.
+                  </p>
+                  <p className="text-[11px] text-slate-300">
+                    2. Atau buka link website ini di HP, lalu ketik Email: <span className="text-[#00d2d3] font-bold">{authSession.email}</span> & Password yang sama.
+                  </p>
+                </div>
+
+                <button 
+                  onClick={() => setShowQrConnectModal(false)}
+                  className="w-full py-2.5 bg-[#21254d] hover:bg-slate-700 text-slate-200 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+          )}
 
           {}
           {scannerModal.isOpen && (
