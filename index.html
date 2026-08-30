@@ -116,8 +116,44 @@
 <body class="bg-[#0f1228] text-slate-100 antialiased select-none dark">
   <div id="root"></div>
 
-  <script type="text/babel">
+  <script type="text/babel" data-type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { 
+      getAuth, 
+      signInWithCustomToken, 
+      signInAnonymously, 
+      GoogleAuthProvider, 
+      signInWithPopup, 
+      signOut, 
+      onAuthStateChanged 
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { 
+      getFirestore, 
+      doc, 
+      getDoc, 
+      setDoc, 
+      onSnapshot, 
+      collection 
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
     const { useState, useEffect, useMemo, useRef, useCallback, Component } = React;
+
+    // Inisialisasi Cloud Database & Auth Configuration
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'pospro-pos-app';
+    const firebaseConfig = typeof __firebase_config !== 'undefined' 
+      ? JSON.parse(__firebase_config) 
+      : {
+          apiKey: "AIzaSyDemoKeyPosProModern2026",
+          authDomain: "pospro-modern.firebaseapp.com",
+          projectId: "pospro-modern",
+          storageBucket: "pospro-modern.appspot.com",
+          messagingSenderId: "1029384756",
+          appId: "1:1029384756:web:987654321fedcba"
+        };
+
+    const firebaseApp = initializeApp(firebaseConfig);
+    const auth = getAuth(firebaseApp);
+    const db = getFirestore(firebaseApp);
 
     class ErrorBoundary extends Component {
       constructor(props) {
@@ -225,20 +261,14 @@
       { id: '5', sku: 'BRG-005', name: 'Keripik Kentang Renyah', costPrice: 6000, price: 10000, packPrice: 0, stock: 35, category: 'Snack', supplier: 'Sentra Camilan' }
     ];
 
-    const loadSaved = (key, fallback) => {
-      try {
-        const item = localStorage.getItem(key);
-        return item ? JSON.parse(item) : fallback;
-      } catch (e) {
-        return fallback;
-      }
-    };
-
     function App() {
+      // Status Autentikasi Pengguna
+      const [authUser, setAuthUser] = useState(null);
+      const [isAuthLoading, setIsAuthLoading] = useState(true);
+      const [isLoggingIn, setIsLoggingIn] = useState(false);
+
       // Inisialisasi Tema (Dark / Light)
-      const [theme, setTheme] = useState(() => {
-        return localStorage.getItem('pospro_theme') || 'dark';
-      });
+      const [theme, setTheme] = useState('dark');
 
       useEffect(() => {
         const root = document.documentElement;
@@ -249,7 +279,6 @@
           root.classList.remove('dark');
           document.body.className = "bg-[#f4f6fb] text-slate-800 antialiased select-none";
         }
-        try { localStorage.setItem('pospro_theme', theme); } catch(e){}
       }, [theme]);
 
       const toggleTheme = () => {
@@ -257,7 +286,6 @@
       };
 
       const [activeTab, setActiveTab] = useState('dashboard');
-      const [isDataLoading, setIsDataLoading] = useState(false);
       
       const [isMobileDevice, setIsMobileDevice] = useState(() => {
         return /Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || window.innerWidth < 1024;
@@ -271,31 +299,171 @@
         return () => window.removeEventListener('resize', handleResize);
       }, []);
 
-      const [currentUser, setCurrentUser] = useState({ name: 'Bapak Owner', role: 'owner', avatar: 'BO' });
+      const [currentUserRole, setCurrentUserRole] = useState({ name: 'Owner Toko', role: 'owner', avatar: 'OT' });
       const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
-      const [showNotificationDrawer, setShowNotificationDrawer] = useState(false);
       const [showMobileCartDrawer, setShowMobileCartDrawer] = useState(false);
 
-      const [authModal, setAuthModal] = useState({ show: false, targetRole: null, password: '' });
-      
-      const [rolePasswords, setRolePasswords] = useState(() => loadSaved('pospro_role_passwords', { owner: 'owner123', admin: 'admin123' }));
-      const [storeSettings, setStoreSettings] = useState(() => loadSaved('pospro_store_settings', defaultSettings));
-      const [products, setProducts] = useState(() => loadSaved('pospro_products', defaultProducts));
-      const [transactions, setTransactions] = useState(() => loadSaved('pospro_transactions', []));
-      const [draftOrders, setDraftOrders] = useState(() => loadSaved('pospro_draft_orders', []));
-      const [customers, setCustomers] = useState(() => loadSaved('pospro_customers', []));
-      const [suppliers, setSuppliers] = useState(() => loadSaved('pospro_suppliers', []));
-      const [expenses, setExpenses] = useState(() => loadSaved('pospro_expenses', []));
+      // Alias aman agar semua referensi currentUser berjalan lancar
+      const currentUser = currentUserRole;
 
-      // Auto-save
-      useEffect(() => { try { localStorage.setItem('pospro_store_settings', JSON.stringify(storeSettings)); } catch(e){} }, [storeSettings]);
-      useEffect(() => { try { localStorage.setItem('pospro_role_passwords', JSON.stringify(rolePasswords)); } catch(e){} }, [rolePasswords]);
-      useEffect(() => { try { localStorage.setItem('pospro_products', JSON.stringify(products)); } catch(e){} }, [products]);
-      useEffect(() => { try { localStorage.setItem('pospro_transactions', JSON.stringify(transactions)); } catch(e){} }, [transactions]);
-      useEffect(() => { try { localStorage.setItem('pospro_draft_orders', JSON.stringify(draftOrders)); } catch(e){} }, [draftOrders]);
-      useEffect(() => { try { localStorage.setItem('pospro_customers', JSON.stringify(customers)); } catch(e){} }, [customers]);
-      useEffect(() => { try { localStorage.setItem('pospro_suppliers', JSON.stringify(suppliers)); } catch(e){} }, [suppliers]);
-      useEffect(() => { try { localStorage.setItem('pospro_expenses', JSON.stringify(expenses)); } catch(e){} }, [expenses]);
+      const [authModal, setAuthModal] = useState({ show: false, targetRole: null, password: '' });
+      const [rolePasswords, setRolePasswords] = useState({ owner: 'owner123', admin: 'admin123' });
+
+      // State Data Aplikasi (Tersinkronisasi per-User ke Cloud Firestore)
+      const [storeSettings, setStoreSettings] = useState(defaultSettings);
+      const [products, setProducts] = useState(defaultProducts);
+      const [transactions, setTransactions] = useState([]);
+      const [draftOrders, setDraftOrders] = useState([]);
+      const [customers, setCustomers] = useState([]);
+      const [suppliers, setSuppliers] = useState([]);
+      const [expenses, setExpenses] = useState([]);
+      const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+
+      // Pantau Status Login Pengguna & Token Custom Prioritas
+      useEffect(() => {
+        let isMounted = true;
+        const unsubscribe = onAuthStateChanged(auth, async (user) => {
+          if (!isMounted) return;
+          if (user) {
+            setAuthUser(user);
+            setCurrentUserRole({
+              name: user.displayName || user.email?.split('@')[0] || 'Pemilik Toko',
+              role: 'owner',
+              avatar: (user.displayName || 'OT').slice(0, 2).toUpperCase()
+            });
+            setIsAuthLoading(false);
+          } else {
+            // Cek apakah ada Custom Token bawaan lingkungan
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              try {
+                await signInWithCustomToken(auth, __initial_auth_token);
+              } catch (err) {
+                console.warn("Auth token fallback to login screen", err);
+                setAuthUser(null);
+                setIsAuthLoading(false);
+              }
+            } else {
+              setAuthUser(null);
+              setIsAuthLoading(false);
+            }
+          }
+        });
+
+        return () => {
+          isMounted = false;
+          unsubscribe();
+        };
+      }, []);
+
+      // Realtime Sync Data Cloud Berdasarkan User ID yang Login
+      useEffect(() => {
+        if (!authUser) return;
+
+        const userId = authUser.uid;
+        // Document path pribadi per user: /artifacts/{appId}/users/{userId}/data/main_store_data
+        const userStoreDocRef = doc(db, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
+
+        const unsubscribeDoc = onSnapshot(userStoreDocRef, (snapshot) => {
+          if (snapshot.exists()) {
+            const data = snapshot.data();
+            if (data.storeSettings) setStoreSettings(data.storeSettings);
+            if (data.products) setProducts(data.products);
+            if (data.transactions) setTransactions(data.transactions);
+            if (data.draftOrders) setDraftOrders(data.draftOrders);
+            if (data.customers) setCustomers(data.customers);
+            if (data.suppliers) setSuppliers(data.suppliers);
+            if (data.expenses) setExpenses(data.expenses);
+            if (data.rolePasswords) setRolePasswords(data.rolePasswords);
+          } else {
+            // Data baru pertama kali login: Inisialisasi cloud store untuk user ini
+            setDoc(userStoreDocRef, {
+              storeSettings: { ...defaultSettings, name: authUser.displayName ? `Toko ${authUser.displayName}` : 'Toko POSPro' },
+              products: defaultProducts,
+              transactions: [],
+              draftOrders: [],
+              customers: [],
+              suppliers: [],
+              expenses: [],
+              rolePasswords: { owner: 'owner123', admin: 'admin123' },
+              createdAt: new Date().toISOString(),
+              userEmail: authUser.email || '',
+              userName: authUser.displayName || 'Pengguna'
+            }).catch((err) => console.error("Error initial store setup:", err));
+          }
+        }, (error) => {
+          console.error("Firestore user sync error:", error);
+        });
+
+        return () => unsubscribeDoc();
+      }, [authUser]);
+
+      // Helper untuk menyimpan perubahan data ke Firestore pribadi pengguna
+      const syncToCloud = useCallback(async (overrides = {}) => {
+        if (!authUser) return;
+        const userId = authUser.uid;
+        const userStoreDocRef = doc(db, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
+        
+        setIsCloudSyncing(true);
+        try {
+          await setDoc(userStoreDocRef, {
+            storeSettings: overrides.storeSettings || storeSettings,
+            products: overrides.products || products,
+            transactions: overrides.transactions || transactions,
+            draftOrders: overrides.draftOrders || draftOrders,
+            customers: overrides.customers || customers,
+            suppliers: overrides.suppliers || suppliers,
+            expenses: overrides.expenses || expenses,
+            rolePasswords: overrides.rolePasswords || rolePasswords,
+            lastUpdated: new Date().toISOString(),
+            userEmail: authUser.email || '',
+            userName: authUser.displayName || ''
+          }, { merge: true });
+        } catch (e) {
+          console.error("Gagal sinkronisasi data cloud:", e);
+        } finally {
+          setIsCloudSyncing(false);
+        }
+      }, [authUser, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords]);
+
+      // Handle Login Google
+      const handleGoogleLogin = async () => {
+        setIsLoggingIn(true);
+        try {
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: 'select_account' });
+          await signInWithPopup(auth, provider);
+          showToast('Berhasil masuk dengan Akun Google!');
+        } catch (err) {
+          console.error("Google Auth error:", err);
+          // Fallback jika popup terhalang iframe browser
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(auth, __initial_auth_token);
+              showToast('Berhasil masuk akun!');
+            } else {
+              await signInAnonymously(auth);
+              showToast('Masuk sebagai sesi pengguna aman');
+            }
+          } catch (anonErr) {
+            showToast('Gagal masuk: ' + (err.message || 'Periksa koneksi'), 'error');
+          }
+        } finally {
+          setIsLoggingIn(false);
+        }
+      };
+
+      // Handle Logout
+      const handleLogout = async () => {
+        if (window.confirm("Apakah Anda yakin ingin keluar dari akun ini?")) {
+          try {
+            await signOut(auth);
+            setAuthUser(null);
+            showToast('Berhasil keluar akun.');
+          } catch (e) {
+            showToast('Gagal keluar akun', 'error');
+          }
+        }
+      };
 
       // State Kasir
       const [cart, setCart] = useState([]);
@@ -710,7 +878,7 @@
           id: `${storeSettings.invoicePrefix || 'INV-'}${Math.floor(100000 + Math.random() * 900000)}`,
           date: new Date().toLocaleString('id-ID'),
           items: cart, subtotal, discount, tax: taxAmount, total: grandTotal, cash: finalCash, change: changeAmount, paymentMethod, note: transactionNote,
-          customerId: selectedCust ? selectedCust.id : null, customerName: selectedCust ? selectedCust.name : 'Umum', cashier: currentUser.name
+          customerId: selectedCust ? selectedCust.id : null, customerName: selectedCust ? selectedCust.name : 'Umum', cashier: currentUserRole.name
         };
 
         const updatedProducts = products.map(p => {
@@ -725,7 +893,8 @@
           updatedCustomers = customers.map(c => c.id === selectedCust.id ? { ...c, totalTrx: (c.totalTrx || 0) + 1, totalSpent: (c.totalSpent || 0) + grandTotal, debt: (c.debt || 0) + addedDebt } : c);
         }
 
-        setTransactions([newTransaction, ...transactions]);
+        const newTrxList = [newTransaction, ...transactions];
+        setTransactions(newTrxList);
         setProducts(updatedProducts);
         setCustomers(updatedCustomers);
         setCart([]);
@@ -738,9 +907,8 @@
         showToast('Transaksi Berhasil Disimpan!');
         setViewingTransaction(newTransaction);
 
-        if (typeof google !== 'undefined' && google.script && google.script.run) {
-          google.script.run.saveTransaction(newTransaction, updatedProducts, updatedCustomers);
-        }
+        // Simpan ke Firestore pribadi user
+        syncToCloud({ transactions: newTrxList, products: updatedProducts, customers: updatedCustomers });
       };
 
       const handleSaveProduct = (e) => {
@@ -751,23 +919,21 @@
         const finalSku = productForm.sku.trim() === '' ? `BRG-${Math.floor(1000 + Math.random() * 9000)}` : productForm.sku.toUpperCase();
         const formattedData = { ...productForm, sku: finalSku, costPrice: Number(productForm.costPrice) || 0, price: Number(productForm.price) || 0, packPrice: Number(productForm.packPrice) || 0, stock: Number(productForm.stock) || 0 };
 
+        let updatedProducts;
         if (editingProduct) { 
-          const updatedProducts = products.map(p => p.id === editingProduct.id ? { ...p, ...formattedData } : p);
+          updatedProducts = products.map(p => p.id === editingProduct.id ? { ...p, ...formattedData } : p);
           setProducts(updatedProducts);
           showToast('Produk diperbarui');
-          setIsProductModalOpen(false);
-          setIsSaving(false);
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateProduct(updatedProducts);
         } else {
           if (products.some(p => p.sku === finalSku)) { showToast('Gagal: Barcode/SKU sudah ada!', 'error'); setIsSaving(false); return; }
           const newProduct = { ...formattedData, id: generateId() };
-          const updatedProducts = [...products, newProduct];
+          updatedProducts = [...products, newProduct];
           setProducts(updatedProducts);
           showToast('Produk ditambahkan');
-          setIsProductModalOpen(false);
-          setIsSaving(false);
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateProduct(updatedProducts);
         }
+        setIsProductModalOpen(false);
+        setIsSaving(false);
+        syncToCloud({ products: updatedProducts });
       };
 
       const handleDeleteProduct = (id) => { 
@@ -775,7 +941,7 @@
           const updatedProducts = products.filter(p => p.id !== id);
           setProducts(updatedProducts);
           showToast('Produk dihapus');
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.deleteProduct(updatedProducts);
+          syncToCloud({ products: updatedProducts });
         } 
       };
 
@@ -804,8 +970,7 @@
         
         setSuppliers(updatedSuppliers); setProducts(updatedProducts); setShowRestockModal(false); 
         showToast(unpaidDebt > 0 ? `Stok masuk tersimpan. Hutang dicatat.` : 'Stok masuk berhasil disimpan!');
-
-        if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.saveRestock(updatedProducts, updatedSuppliers);
+        syncToCloud({ products: updatedProducts, suppliers: updatedSuppliers });
       };
 
       const handleSaveStockOut = (e) => {
@@ -825,51 +990,50 @@
         if (!hasValidItems) { showToast('Pilih minimal 1 produk', 'error'); return; }
         
         setProducts(updatedProducts); setShowStockOutModal(false); showToast(`Stok berhasil dikeluarkan`);
-        if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateProduct(updatedProducts);
+        syncToCloud({ products: updatedProducts });
       };
-
-      const updateDynamicList = (formObj, setFormObj, index, field, value) => { const newItems = [...formObj.items]; newItems[index][field] = value; setFormObj({ ...formObj, items: newItems }); };
-      const addRowDynamicList = (formObj, setFormObj) => setFormObj({ ...formObj, items: [...formObj.items, { productId: '', qty: '' }] });
 
       const handleSaveCustomer = (e) => { 
         e.preventDefault(); 
+        let updated;
         if (editingCustomer) { 
-          const updated = customers.map(c => c.id === editingCustomer.id ? { ...c, ...customerForm } : c);
+          updated = customers.map(c => c.id === editingCustomer.id ? { ...c, ...customerForm } : c);
           setCustomers(updated); showToast('Pelanggan diperbarui'); setIsCustomerModalOpen(false);
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateCustomerList(updated);
         } else { 
           const newCustomer = { ...customerForm, id: `CUST-${Math.floor(1000 + Math.random() * 9000)}`, totalTrx: 0, totalSpent: 0, debt: 0 };
-          setCustomers([...customers, newCustomer]); showToast('Pelanggan ditambahkan'); setIsCustomerModalOpen(false);
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.saveNewCustomer(newCustomer);
+          updated = [...customers, newCustomer];
+          setCustomers(updated); showToast('Pelanggan ditambahkan'); setIsCustomerModalOpen(false);
         } 
+        syncToCloud({ customers: updated });
       };
       
       const handleDeleteCustomer = (id) => { 
         if (window.confirm('Hapus pelanggan ini?')) { 
           const updated = customers.filter(c => c.id !== id);
           setCustomers(updated); if (selectedCustomerPOS === id) setSelectedCustomerPOS(''); showToast('Pelanggan dihapus');
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateCustomerList(updated);
+          syncToCloud({ customers: updated });
         } 
       };
       
       const handleSaveSupplier = (e) => { 
         e.preventDefault(); 
+        let updated;
         if (editingSupplier) { 
-          const updated = suppliers.map(s => s.id === editingSupplier.id ? { ...s, ...supplierForm } : s);
+          updated = suppliers.map(s => s.id === editingSupplier.id ? { ...s, ...supplierForm } : s);
           setSuppliers(updated); showToast('Supplier diperbarui'); setIsSupplierModalOpen(false);
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateSupplierList(updated);
         } else { 
           const newSupp = { ...supplierForm, id: `SUP-${Math.floor(1000 + Math.random() * 9000)}`, totalPurchases: 0, debt: 0 };
-          setSuppliers([...suppliers, newSupp]); showToast('Supplier ditambahkan'); setIsSupplierModalOpen(false);
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.saveNewSupplier(newSupp);
+          updated = [...suppliers, newSupp];
+          setSuppliers(updated); showToast('Supplier ditambahkan'); setIsSupplierModalOpen(false);
         } 
+        syncToCloud({ suppliers: updated });
       };
 
       const handleDeleteSupplier = (id) => { 
         if (window.confirm('Hapus supplier ini?')) { 
           const updated = suppliers.filter(s => s.id !== id);
           setSuppliers(updated); showToast('Supplier dihapus');
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateSupplierList(updated);
+          syncToCloud({ suppliers: updated });
         } 
       };
 
@@ -877,15 +1041,16 @@
         e.preventDefault(); const amountVal = Number(expenseForm.amount) || 0; if (amountVal <= 0) { showToast('Masukkan nominal valid', 'error'); return; }
         const dateParts = expenseForm.date.split('-'); const formattedDate = `${dateParts[2]}/${dateParts[1]}/${dateParts[0]}`;
         const newExp = { id: `EXP-${Math.floor(1000 + Math.random() * 9000)}`, date: formattedDate, category: expenseForm.category, amount: amountVal, note: expenseForm.note || '-' };
-        setExpenses([newExp, ...expenses]); setIsExpenseModalOpen(false); setExpenseForm({ category: 'Listrik', amount: '', date: new Date().toISOString().split('T')[0], note: '' }); showToast('Pengeluaran dicatat');
-        if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.saveNewExpense(newExp);
+        const updated = [newExp, ...expenses];
+        setExpenses(updated); setIsExpenseModalOpen(false); setExpenseForm({ category: 'Listrik', amount: '', date: new Date().toISOString().split('T')[0], note: '' }); showToast('Pengeluaran dicatat');
+        syncToCloud({ expenses: updated });
       };
 
       const handleDeleteExpense = (id) => { 
         if (window.confirm('Hapus pengeluaran ini?')) { 
           const updated = expenses.filter(e => e.id !== id);
           setExpenses(updated); showToast('Pengeluaran dihapus');
-          if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateExpenseList(updated);
+          syncToCloud({ expenses: updated });
         } 
       };
 
@@ -893,110 +1058,115 @@
         e.preventDefault(); const payAmount = Number(customerPayAmount) || 0; if (payAmount <= 0) { showToast('Masukkan nominal valid', 'error'); return; } if (payAmount > (paymentModalCustomer.debt || 0)) { showToast('Melebihi piutang!', 'error'); return; } 
         const updated = customers.map(c => c.id === paymentModalCustomer.id ? { ...c, debt: (c.debt || 0) - payAmount } : c);
         setCustomers(updated); showToast('Pelunasan piutang dicatat.'); setPaymentModalCustomer(null); setCustomerPayAmount('');
-        if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateCustomerList(updated);
+        syncToCloud({ customers: updated });
       };
       
       const handlePaySupplierDebt = (e) => { 
         e.preventDefault(); const payAmount = Number(supplierPayAmount) || 0; if (payAmount <= 0) { showToast('Masukkan nominal valid', 'error'); return; } if (payAmount > (paymentModalSupplier.debt || 0)) { showToast('Melebihi hutang!', 'error'); return; } 
-        const updated = suppliers.map(s => s.id === paymentModalSupplier.id ? { ...s, debt: (s.debt || 0) - payAmount } : s);
+        const updated = suppliers.map(s => s.id === paymentModalSupplier.id ? { ...s, debt: (s.debt || 0) - payAmount } : c);
         setSuppliers(updated); showToast('Pelunasan hutang dicatat.'); setPaymentModalSupplier(null); setSupplierPayAmount('');
-        if (typeof google !== 'undefined' && google.script && google.script.run) google.script.run.updateSupplierList(updated);
+        syncToCloud({ suppliers: updated });
       };
 
-      const handleBackupDatabase = () => {
-        const fullBackup = {
-          app: 'POSPro', version: '3.0-modern-theme', backupDate: new Date().toISOString(), timestamp: Date.now(),
-          storeSettings, rolePasswords, products, transactions, draftOrders, customers, suppliers, expenses
-        };
-        const jsonString = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(fullBackup, null, 2))}`;
-        const downloadAnchor = document.createElement('a');
-        downloadAnchor.setAttribute("href", jsonString);
-        downloadAnchor.setAttribute("download", `Backup_POSPro_${storeSettings.name.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.json`);
-        document.body.appendChild(downloadAnchor);
-        downloadAnchor.click();
-        downloadAnchor.remove();
-        showToast('Database berhasil diunduh (.json)!');
-      };
-
-      const handleRestoreDatabase = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          try {
-            const importedData = JSON.parse(event.target.result);
-            if (!importedData.products && !importedData.transactions) throw new Error('Format salah');
-            if (window.confirm("Pulihkan database? Data saat ini akan ditimpa.")) {
-              if (importedData.storeSettings) setStoreSettings(importedData.storeSettings);
-              if (importedData.rolePasswords) setRolePasswords(importedData.rolePasswords);
-              if (importedData.products) setProducts(importedData.products);
-              if (importedData.transactions) setTransactions(importedData.transactions);
-              if (importedData.customers) setCustomers(importedData.customers);
-              if (importedData.suppliers) setSuppliers(importedData.suppliers);
-              if (importedData.expenses) setExpenses(importedData.expenses);
-              showToast('Database berhasil dipulihkan!');
-            }
-          } catch (err) {
-            showToast('Gagal memulihkan: format file tidak sesuai', 'error');
-          }
-          if (fileInputRef.current) fileInputRef.current.value = '';
-        };
-        reader.readAsText(file);
-      };
-
-      const executeRoleSwitch = (roleData) => {
-        setCurrentUser(roleData);
-        setShowRoleSwitcher(false);
-        showToast(`Login sebagai ${roleData.role.toUpperCase()}`);
-        if (roleData.role === 'kasir') setActiveTab('pos');
-      };
-
-      const handleRoleSwitchRequest = (roleData) => {
-        if (roleData.role === currentUser.role) return setShowRoleSwitcher(false);
-        if (roleData.role === 'kasir' || currentUser.role === 'owner') {
-          executeRoleSwitch(roleData);
+      const handleRoleSwitchRequest = (roleObj) => {
+        if (roleObj.role === 'owner' || roleObj.role === 'admin') {
+          setAuthModal({ show: true, targetRole: roleObj, password: '' });
         } else {
-          setAuthModal({ show: true, targetRole: roleData, password: '' });
+          setCurrentUserRole(roleObj);
           setShowRoleSwitcher(false);
+          showToast(`Beralih ke peran ${roleObj.name}`);
         }
       };
 
       const handleAuthSubmit = (e) => {
         e.preventDefault();
-        if (rolePasswords[authModal.targetRole.role] === authModal.password) {
-          executeRoleSwitch(authModal.targetRole);
+        const target = authModal.targetRole;
+        if (!target) return;
+        const requiredPass = rolePasswords[target.role] || (target.role === 'owner' ? 'owner123' : 'admin123');
+        if (authModal.password === requiredPass) {
+          setCurrentUserRole(target);
           setAuthModal({ show: false, targetRole: null, password: '' });
+          setShowRoleSwitcher(false);
+          showToast(`Berhasil masuk sebagai ${target.name}`);
         } else {
           showToast('Password salah!', 'error');
         }
       };
 
-      const categories = ['Semua', ...new Set(products.map(p => p.category || 'Umum'))];
-      const filteredProducts = products.filter(p => {
-        const matchesSearch = (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || (p.sku || '').toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesCategory = selectedCategory === 'Semua' || p.category === selectedCategory;
-        return matchesSearch && matchesCategory;
-      });
+      const handleBackupDatabase = () => {
+        const backupData = {
+          storeSettings,
+          products,
+          transactions,
+          draftOrders,
+          customers,
+          suppliers,
+          expenses,
+          rolePasswords,
+          exportedAt: new Date().toISOString()
+        };
+        const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backup_pospro_${new Date().toISOString().split('T')[0]}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('Backup berhasil diunduh!');
+      };
 
-      const renderDashboard = () => {
-        const now = new Date(); 
-        const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const startOfWeek = new Date(todayDate); startOfWeek.setDate(todayDate.getDate() - todayDate.getDay());
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      const handleRestoreDatabase = (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target.result);
+            if (data.products) setProducts(data.products);
+            if (data.transactions) setTransactions(data.transactions);
+            if (data.customers) setCustomers(data.customers);
+            if (data.suppliers) setSuppliers(data.suppliers);
+            if (data.expenses) setExpenses(data.expenses);
+            if (data.storeSettings) setStoreSettings(data.storeSettings);
+            if (data.rolePasswords) setRolePasswords(data.rolePasswords);
+            showToast('Data berhasil dipulihkan dari file backup!');
+            syncToCloud(data);
+          } catch (err) {
+            showToast('Gagal memulihkan data: Format file tidak valid', 'error');
+          }
+        };
+        reader.readAsText(file);
+      };
 
-        const filteredRevenueTrx = transactions.filter(t => {
-          const tDate = parseDateStr(t.date);
-          if (revenuePeriod === 'today') return tDate >= todayDate;
-          if (revenuePeriod === 'week') return tDate >= startOfWeek;
-          if (revenuePeriod === 'month') return tDate >= startOfMonth;
-          return true;
+      const addRowDynamicList = (state, setState) => {
+        setState({ ...state, items: [...state.items, { productId: '', qty: '' }] });
+      };
+
+      const updateDynamicList = (state, setState, index, field, value) => {
+        const items = [...state.items];
+        items[index][field] = value;
+        setState({ ...state, items });
+      };
+
+      const categories = useMemo(() => ['Semua', ...Array.from(new Set(products.map(p => p.category || 'Umum')))], [products]);
+
+      const filteredProducts = useMemo(() => {
+        return products.filter(p => {
+          const matchesCat = selectedCategory === 'Semua' || p.category === selectedCategory;
+          const q = searchQuery.toLowerCase();
+          const matchesSearch = p.name.toLowerCase().includes(q) || (p.sku && p.sku.toLowerCase().includes(q));
+          return matchesCat && matchesSearch;
         });
+      }, [products, selectedCategory, searchQuery]);
 
-        const totalNilaiPenjualan = filteredRevenueTrx.reduce((sum, t) => sum + (t.subtotal || t.total || 0), 0);
-        const totalNilaiAkhir = filteredRevenueTrx.reduce((sum, t) => sum + (t.total || 0), 0);
+      // Perhitungan & Visualisasi Dasbor Sesuai Gambar Referensi
+      const renderDashboard = () => {
+        // Kalkulasi Keuangan
+        const totalNilaiPenjualan = transactions.reduce((sum, t) => sum + (t.subtotal || t.total || 0), 0);
+        const totalNilaiAkhir = transactions.reduce((sum, t) => sum + (t.total || 0), 0);
         
         let totalHPP = 0;
-        filteredRevenueTrx.forEach(t => {
+        transactions.forEach(t => {
           (t.items || []).forEach(item => {
             if (item.product) {
               const prod = products.find(p => p.id === item.product.id);
@@ -1005,144 +1175,106 @@
             }
           });
         });
-        const totalProfit = totalNilaiAkhir - totalHPP;
 
-        // Analisis per Kategori untuk Donut Widgets
-        const uniqueCategories = [...new Set(products.map(p => p.category || 'Umum'))].slice(0, 3);
-        const categoryStats = uniqueCategories.map((catName, idx) => {
-          let catSales = 0;
-          let catSoldQty = 0;
-          let catTotalStock = 0;
+        const totalPengeluaran = expenses.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const totalProfit = (totalNilaiAkhir - totalHPP) - totalPengeluaran;
+
+        // Metrik Kategori Donut Charts (Jenis 1: Minuman, Jenis 2: Makanan, Jenis 3: Snack/Lainnya)
+        const categoryStats = [
+          { name: 'Jenis 1 (Minuman)', cat: 'Minuman', color: '#ff4b8b', border: '#ff4b8b' },
+          { name: 'Jenis 2 (Makanan)', cat: 'Makanan', color: '#00d2d3', border: '#00d2d3' },
+          { name: 'Jenis 3 (Snack/Umum)', cat: 'Snack', color: '#ff8a3d', border: '#ff8a3d' }
+        ].map((c) => {
+          const prodsInCat = products.filter(p => p.category && p.category.toLowerCase().includes(c.cat.toLowerCase()));
+          const stock = prodsInCat.reduce((sum, p) => sum + (p.stock || 0), 0);
           
-          products.filter(p => p.category === catName).forEach(p => catTotalStock += p.stock);
-          
-          filteredRevenueTrx.forEach(t => {
-            (t.items || []).forEach(it => {
-              if (it.product && it.product.category === catName) {
-                catSales += (it.qty * (it.product.price - (Number(it.discountRp)||0)));
-                catSoldQty += it.qty;
+          let sold = 0;
+          let sales = 0;
+          transactions.forEach(t => {
+            (t.items || []).forEach(i => {
+              if (i.product && prodsInCat.some(p => p.id === i.product.id)) {
+                sold += i.qty;
+                sales += ((i.product.price - (Number(i.discountRp) || 0)) * i.qty);
               }
             });
           });
 
-          const totalInitial = catTotalStock + catSoldQty;
-          const percentage = totalInitial > 0 ? Math.min(100, Math.round((catSoldQty / totalInitial) * 100)) : (idx === 0 ? 64 : idx === 1 ? 50 : 51);
+          const total = stock + sold;
+          const percentage = total > 0 ? Math.round((sold / total) * 100) : 50;
 
           return {
-            name: catName,
-            sales: catSales || (idx === 0 ? 2128500 : idx === 1 ? 5824100 : 354600),
+            title: c.name,
+            stock,
+            sold,
+            total,
+            sales,
             percentage,
-            sold: catSoldQty || (idx === 0 ? 110 : idx === 1 ? 126 : 62),
-            stock: catTotalStock || (idx === 0 ? 61 : idx === 1 ? 127 : 60),
-            total: (catTotalStock + catSoldQty) || (idx === 0 ? 171 : idx === 1 ? 253 : 122)
+            color: c.color,
+            border: c.border
           };
         });
 
-        // Top 10 Produk untuk Grafik Persediaan Barang & Kelarisan
+        // Metrik Grafik Persediaan Batang
         const productStats = products.slice(0, 10).map((p, idx) => {
           let sold = 0;
           transactions.forEach(t => {
-            (t.items || []).forEach(it => {
-              if (it.product && it.product.id === p.id) sold += it.qty;
+            (t.items || []).forEach(i => {
+              if (i.product && i.product.id === p.id) {
+                sold += i.qty;
+              }
             });
           });
           const initial = p.stock + sold;
-          const soldPercentage = initial > 0 ? Math.min(100, Math.round((sold / initial) * 100)) : 40;
-          let labelLaku = "Barang Laku";
-          if (soldPercentage >= 80) labelLaku = "Barang Sangat Laku";
-          else if (soldPercentage <= 20) labelLaku = "Barang Tidak Laku";
+          const remaining = p.stock;
+          const soldPercentage = initial > 0 ? Math.round((sold / initial) * 100) : 0;
+          const labelLaku = soldPercentage >= 70 ? 'Barang Sangat Laku' : soldPercentage >= 40 ? 'Barang Laku' : 'Barang Kurang Laku';
 
           return {
-            name: p.name.length > 12 ? p.name.slice(0, 10) + '..' : p.name,
+            name: `Barang ${idx + 1}`,
             fullName: p.name,
-            initial: initial || (idx * 5 + 15),
-            sold: sold || (idx * 3 + 4),
-            remaining: p.stock,
+            initial,
+            sold,
+            remaining,
             soldPercentage,
             labelLaku
           };
         });
 
-        const maxBarVal = Math.max(...productStats.map(p => Math.max(p.initial, p.sold, p.remaining)), 50);
+        const maxBarVal = Math.max(...productStats.map(ps => Math.max(ps.initial, ps.sold, ps.remaining, 10)), 50);
 
         return (
-          <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 sm:space-y-6 max-w-7xl mx-auto">
-            {/* Header Dashboard & Kontrol Periode */}
-            <div className={`p-4 sm:p-6 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all ${
-              theme === 'dark' 
-                ? 'bg-[#181b3b] border-[#2a2f60] shadow-xl text-white' 
-                : 'bg-white border-slate-200 shadow-sm text-slate-800'
-            }`}>
-              <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-lg ${
-                  theme === 'dark' ? 'bg-gradient-to-tr from-brand-pink to-brand-cyan text-white shadow-lg' : 'bg-indigo-600 text-white'
-                }`}>
-                  <Icon name="layout-dashboard" className="w-6 h-6"/>
-                </div>
-                <div>
-                  <h2 className="text-xl sm:text-2xl font-black tracking-tight">{storeSettings.name}</h2>
-                  <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
-                    {storeSettings.tagline || 'Dasbor Penjualan, Profit & Persediaan Barang'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                <div className={`flex p-1 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-100 border-slate-200'}`}>
-                  {['today', 'week', 'month'].map(p => (
-                    <button
-                      key={p}
-                      onClick={() => setRevenuePeriod(p)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-bold capitalize transition-all ${
-                        revenuePeriod === p
-                          ? (theme === 'dark' ? 'bg-[#6366f1] text-white shadow-md' : 'bg-white text-indigo-600 shadow-sm')
-                          : (theme === 'dark' ? 'text-slate-400 hover:text-white' : 'text-slate-600')
-                      }`}
-                    >
-                      {p === 'today' ? 'Hari Ini' : p === 'week' ? 'Minggu Ini' : 'Bulan Ini'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* BARIS 1: 3 Donut Gauge Categories & 4 Top KPI Cards (Sesuai Gambar) */}
+          <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 max-w-7xl mx-auto">
+            
+            {/* BARIS 1: 3 Donut Chart Kategori & 4 Kotak Metrik KPI */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               
-              {/* Kolom Kiri: 3 Widget Donut Chart Kategori */}
+              {/* Kolom Kiri: 3 Donut Gauges */}
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {categoryStats.map((cat, idx) => {
                   const strokeDashoffset = 283 - (283 * cat.percentage) / 100;
-                  const tagColors = [
-                    { bg: 'bg-[#ff4b8b]/20', text: 'text-[#ff4b8b]', border: 'border-[#ff4b8b]/30', color: '#ff4b8b' },
-                    { bg: 'bg-[#00d2d3]/20', text: 'text-[#00d2d3]', border: 'border-[#00d2d3]/30', color: '#00d2d3' },
-                    { bg: 'bg-[#ff8a3d]/20', text: 'text-[#ff8a3d]', border: 'border-[#ff8a3d]/30', color: '#ff8a3d' }
-                  ][idx % 3];
-
                   return (
                     <div 
-                      key={idx}
-                      className={`p-4 rounded-3xl border flex flex-col justify-between items-center text-center relative overflow-hidden transition-all ${
-                        theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] shadow-lg' : 'bg-white border-slate-200 shadow-sm'
+                      key={idx} 
+                      className={`p-4 rounded-3xl border flex flex-col items-center justify-between text-center transition-all ${
+                        theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-lg' : 'bg-white border-slate-200 shadow-sm'
                       }`}
                     >
-                      {/* Tag Badge */}
-                      <div className="w-full flex justify-start">
-                        <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-lg border flex items-center gap-1 ${tagColors.bg} ${tagColors.text} ${tagColors.border}`}>
-                          <Icon name="tag" className="w-3 h-3" />
-                          {cat.name}
+                      <div className="flex items-center gap-1.5 self-start">
+                        <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: cat.color }}></span>
+                        <span className={`text-[11px] font-bold uppercase tracking-wider ${theme === 'dark' ? 'text-slate-300' : 'text-slate-700'}`}>
+                          {cat.title}
                         </span>
                       </div>
 
-                      {/* Donut Chart SVG Modern */}
-                      <div className="relative my-3 flex items-center justify-center">
-                        <svg className="w-28 h-28 transform -rotate-90">
-                          {/* Circle Background */}
+                      {/* Donut Circular Gauge SVG */}
+                      <div className="relative w-28 h-28 my-3 flex items-center justify-center">
+                        <svg className="w-full h-full -rotate-90" viewBox="0 0 112 112">
+                          {/* Background Circle */}
                           <circle
                             cx="56"
                             cy="56"
                             r="45"
-                            className={theme === 'dark' ? 'stroke-[#21254d]' : 'stroke-slate-100'}
+                            stroke={theme === 'dark' ? '#21254d' : '#e2e8f0'}
                             strokeWidth="12"
                             fill="transparent"
                           />
@@ -1151,7 +1283,7 @@
                             cx="56"
                             cy="56"
                             r="45"
-                            stroke={tagColors.color}
+                            stroke={cat.color}
                             strokeWidth="12"
                             strokeDasharray="283"
                             strokeDashoffset={strokeDashoffset}
@@ -1188,7 +1320,7 @@
                 })}
               </div>
 
-              {/* Kolom Kanan: 4 Kotak KPI Keuangan (Pink, Cyan, Orange Accent) */}
+              {/* Kolom Kanan: 4 Kotak KPI Keuangan */}
               <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 
                 {/* Total Nilai Penjualan */}
@@ -1283,10 +1415,10 @@
 
             </div>
 
-            {/* BARIS 2: Grafik Persediaan Barang (Multi-Warna) & Grafik Barang Laku Horizontal */}
+            {/* BARIS 2: Grafik Persediaan Barang & Grafik Barang Laku Horizontal */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               
-              {/* Grafik Persediaan Barang (7 Kolom) */}
+              {/* Grafik Persediaan Barang */}
               <div className={`lg:col-span-7 p-4 sm:p-6 rounded-3xl border flex flex-col justify-between transition-all ${
                 theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm text-slate-800'
               }`}>
@@ -1304,7 +1436,7 @@
                   </div>
                 </div>
 
-                {/* Container Grafik Batang Berdampingan */}
+                {/* Container Grafik Batang */}
                 <div className="h-60 sm:h-72 flex items-end gap-2 sm:gap-4 pt-4 border-b border-slate-700/50 pb-2 overflow-x-auto no-scrollbar">
                   {productStats.map((item, idx) => {
                     const hInitial = (item.initial / maxBarVal) * 100;
@@ -1313,7 +1445,6 @@
 
                     return (
                       <div key={idx} className="flex-1 min-w-[50px] flex flex-col items-center h-full justify-end group">
-                        {/* 3 Batang Berkelompok */}
                         <div className="flex items-end justify-center gap-1 w-full h-[82%]">
                           {/* Awal (Cyan) */}
                           <div className="w-2.5 sm:w-3.5 bg-[#00d2d3] rounded-t-md relative flex justify-center group-hover:brightness-110 transition-all" style={{ height: `${hInitial}%`, minHeight: '4px' }}>
@@ -1335,7 +1466,6 @@
                           </div>
                         </div>
 
-                        {/* Label Bawah Nama Barang */}
                         <p className={`mt-2 text-[10px] font-bold truncate max-w-[55px] text-center ${theme === 'dark' ? 'text-slate-400' : 'text-slate-600'}`}>
                           {item.name}
                         </p>
@@ -1345,7 +1475,7 @@
                 </div>
               </div>
 
-              {/* Grafik Barang Laku Horizontal (5 Kolom) */}
+              {/* Grafik Barang Laku Horizontal */}
               <div className={`lg:col-span-5 p-4 sm:p-6 rounded-3xl border flex flex-col justify-between transition-all ${
                 theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm text-slate-800'
               }`}>
@@ -1804,16 +1934,30 @@
               <div className={`p-3 rounded-2xl border flex items-center justify-between ${
                 theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50 border-slate-200'
               }`}>
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold flex items-center justify-center text-xs shadow-md">
+                <div className="flex items-center gap-2.5 overflow-hidden">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold flex items-center justify-center text-xs shadow-md shrink-0">
                     {currentUser.avatar}
                   </div>
-                  <div>
-                    <p className={`font-bold text-xs ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{currentUser.name}</p>
-                    <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold uppercase">{currentUser.role}</span>
+                  <div className="overflow-hidden">
+                    <p className={`font-bold text-xs truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{currentUser.name}</p>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold uppercase">{currentUser.role}</span>
+                      {authUser?.email && (
+                        <span className="text-[9px] text-slate-400 truncate max-w-[80px]" title={authUser.email}>
+                          {authUser.email.split('@')[0]}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <button onClick={() => setShowRoleSwitcher(!showRoleSwitcher)} className="text-[10px] text-[#00d2d3] hover:underline font-bold">Ganti</button>
+                <div className="flex items-center gap-1">
+                  <button onClick={() => setShowRoleSwitcher(!showRoleSwitcher)} className="text-[10px] text-[#00d2d3] hover:underline font-bold px-1 py-0.5">Role</button>
+                  {authUser && (
+                    <button onClick={handleLogout} className="text-slate-400 hover:text-rose-400 p-1" title="Keluar Akun">
+                      <Icon name="log-out" className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -1871,16 +2015,16 @@
             <div className={`lg:hidden px-4 py-3 flex items-center justify-between shadow-md z-20 shrink-0 border-b ${
               theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200 text-slate-800'
             }`}>
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-black text-xs text-white">
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-black text-xs text-white shrink-0">
                   {currentUser.avatar}
                 </div>
-                <div>
+                <div className="overflow-hidden">
                   <h1 className="text-xs font-black tracking-tight leading-none truncate max-w-[130px]">{storeSettings.name}</h1>
                   <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{currentUser.role}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
                 <button 
                   onClick={toggleTheme} 
                   className={`p-2 rounded-xl border ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-amber-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}
@@ -1888,7 +2032,12 @@
                 >
                   <Icon name={theme === 'dark' ? "sun" : "moon"} className="w-4 h-4" />
                 </button>
-                <button onClick={() => setShowRoleSwitcher(true)} className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold border ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-[#00d2d3]' : 'bg-slate-100 border-slate-200'}`}>Role</button>
+                <button onClick={() => setShowRoleSwitcher(true)} className={`px-2 py-1.5 rounded-xl text-[10px] font-bold border ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-[#00d2d3]' : 'bg-slate-100 border-slate-200'}`}>Role</button>
+                {authUser && (
+                  <button onClick={handleLogout} className="p-2 text-slate-400 hover:text-rose-400 bg-slate-800/40 rounded-xl" title="Keluar Akun">
+                    <Icon name="log-out" className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
 
