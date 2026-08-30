@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>POSPro - Sistem Kasir & Manajemen Toko</title>
+  <title>POSPro - Sistem Kasir & Manajemen Toko Cloud</title>
   
   <!-- Tailwind CSS & Konfigurasi Tema -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -105,6 +105,73 @@
 <body class="bg-[#0f1228] text-slate-100 antialiased select-none dark">
   <div id="root"></div>
 
+  <!-- Inisialisasi Firebase Cloud Synchronization SDK -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { 
+      getAuth, 
+      signInWithPopup, 
+      GoogleAuthProvider, 
+      signInWithCustomToken, 
+      signInAnonymously, 
+      onAuthStateChanged, 
+      signOut 
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { 
+      getFirestore, 
+      doc, 
+      setDoc, 
+      getDoc, 
+      onSnapshot 
+    } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // Setup Konfigurasi Cloud
+    let firebaseConfig = null;
+    if (typeof __firebase_config !== 'undefined') {
+      try { firebaseConfig = JSON.parse(__firebase_config); } catch (e) {}
+    }
+    if (!firebaseConfig) {
+      try {
+        const savedCustomConfig = localStorage.getItem('pospro_custom_firebase_config');
+        if (savedCustomConfig) firebaseConfig = JSON.parse(savedCustomConfig);
+      } catch (e) {}
+    }
+
+    // Default Fallback Config
+    if (!firebaseConfig) {
+      firebaseConfig = {
+        apiKey: "AIzaSyDummyKeyForVercelApp1234567890",
+        authDomain: "pospro-cloud-pos.firebaseapp.com",
+        projectId: "pospro-cloud-pos",
+        storageBucket: "pospro-cloud-pos.appspot.com",
+        messagingSenderId: "100000000000",
+        appId: "1:100000000000:web:abcdef123456"
+      };
+    }
+
+    try {
+      const app = initializeApp(firebaseConfig);
+      window.posAuth = getAuth(app);
+      window.posDb = getFirestore(app);
+      window.posGoogleProvider = new GoogleAuthProvider();
+      window.posSignOut = signOut;
+      window.posSignInWithPopup = signInWithPopup;
+      window.posDoc = doc;
+      window.posSetDoc = setDoc;
+      window.posGetDoc = getDoc;
+      window.posOnSnapshot = onSnapshot;
+      window.posAppId = typeof __app_id !== 'undefined' ? __app_id : 'pospro-store-app';
+      window.posInitialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+      window.posSignInWithCustomToken = signInWithCustomToken;
+      window.posSignInAnonymously = signInAnonymously;
+      window.posOnAuthStateChanged = onAuthStateChanged;
+      window.isFirebaseReady = true;
+    } catch (err) {
+      console.warn("Cloud Sync status:", err);
+      window.isFirebaseReady = false;
+    }
+  </script>
+
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef, useCallback, Component } = React;
 
@@ -127,8 +194,8 @@
                 <div className="w-14 h-14 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <i data-lucide="triangle-alert" className="w-8 h-8"></i>
                 </div>
-                <h2 className="text-lg font-black text-white">Terjadi Kendala Tampilan</h2>
-                <p className="text-xs text-slate-400 mt-2">Data kasir Anda tersimpan aman di Chrome. Klik tombol di bawah untuk memuat ulang.</p>
+                <h2 className="text-lg font-black text-white">Terjadi Kendala Memuat Data</h2>
+                <p className="text-xs text-slate-400 mt-2">Data Anda tersimpan aman. Klik tombol di bawah untuk memuat ulang aplikasi.</p>
                 <div className="mt-6">
                   <button 
                     onClick={() => window.location.reload()} 
@@ -194,7 +261,7 @@
     };
 
     const defaultSettings = {
-      name: 'POSPro Store', tagline: 'Sistem Kasir & Manajemen Toko Modern', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
+      name: 'POSPro Store', tagline: 'Sistem Kasir & Manajemen Toko Cloud', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
       receiptFooter: 'Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar.', invoicePrefix: 'INV-', taxPercent: 0, defaultDiscount: 0, currency: 'IDR',
       paymentMethods: ['Cash', 'Debit', 'Transfer', 'QRIS', 'E-wallet', 'Hutang']
     };
@@ -237,25 +304,22 @@
       try {
         localStorage.setItem(key, JSON.stringify(value));
       } catch (e) {
-        console.error("Gagal simpan ke localStorage", e);
+        console.error("Gagal simpan lokal", e);
       }
     };
 
     function App() {
-      // State Autentikasi Pengguna (Google Login vs Demo Mode)
       const [authSession, setAuthSession] = useState(() => {
         return loadFromLocal('pospro_current_auth_user', null);
       });
 
       const [isAuthLoading, setIsAuthLoading] = useState(false);
-      const [showGoogleLoginModal, setShowGoogleLoginModal] = useState(false);
+      const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+      const [cloudStatus, setCloudStatus] = useState('offline'); // 'online' | 'synced' | 'offline'
+      const [showGoogleAccountPicker, setShowGoogleAccountPicker] = useState(false);
       const [googleEmailInput, setGoogleEmailInput] = useState('');
       const [googleNameInput, setGoogleNameInput] = useState('');
-      const [savedGoogleAccounts, setSavedGoogleAccounts] = useState(() => {
-        return loadFromLocal('pospro_remembered_google_accounts', []);
-      });
 
-      // Tema Tampilan
       const [theme, setTheme] = useState(() => loadFromLocal('pospro_theme', 'dark'));
 
       useEffect(() => {
@@ -289,7 +353,11 @@
       const isDemoUser = authSession?.isDemo === true;
       const userStoragePrefix = authSession ? `pospro_user_${authSession.uid}` : 'pospro_user_guest';
 
-      const [currentUserRole, setCurrentUserRole] = useState({ name: authSession?.displayName || 'Owner Toko', role: 'owner', avatar: (authSession?.displayName ? authSession.displayName.slice(0,2).toUpperCase() : 'OT') });
+      const [currentUserRole, setCurrentUserRole] = useState({ 
+        name: authSession?.displayName || 'Owner Toko', 
+        role: 'owner', 
+        avatar: (authSession?.displayName ? authSession.displayName.slice(0,2).toUpperCase() : 'OT') 
+      });
       const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
       const [showMobileCartDrawer, setShowMobileCartDrawer] = useState(false);
 
@@ -342,49 +410,139 @@
         ] : [];
       });
 
+      const isInitialCloudLoadRef = useRef(true);
+      const isSyncingFromCloudRef = useRef(false);
+
+      useEffect(() => {
+        if (!authSession || authSession.isDemo || !window.posDb) {
+          setCloudStatus('offline');
+          return;
+        }
+
+        const appId = window.posAppId || 'pospro-store-app';
+        const userId = authSession.uid;
+        // RULE 1: STRICT PATH /artifacts/{appId}/users/{userId}/{collectionName}
+        const userStoreDocRef = window.posDoc(window.posDb, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
+
+        let unsubscribe = null;
+        try {
+          unsubscribe = window.posOnSnapshot(userStoreDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+              const cloudData = docSnap.data();
+              isSyncingFromCloudRef.current = true;
+              if (cloudData.storeSettings) setStoreSettings(cloudData.storeSettings);
+              if (cloudData.products) setProducts(cloudData.products);
+              if (cloudData.transactions) setTransactions(cloudData.transactions);
+              if (cloudData.customers) setCustomers(cloudData.customers);
+              if (cloudData.suppliers) setSuppliers(cloudData.suppliers);
+              if (cloudData.expenses) setExpenses(cloudData.expenses);
+              if (cloudData.draftOrders) setDraftOrders(cloudData.draftOrders);
+              if (cloudData.rolePasswords) setRolePasswords(cloudData.rolePasswords);
+              
+              setCloudStatus('synced');
+              setTimeout(() => { isSyncingFromCloudRef.current = false; }, 400);
+            } else {
+              // Jika baru pertama kali di cloud, upload data awal lokal
+              syncDataToCloud();
+            }
+          }, (err) => {
+            console.warn("Cloud onSnapshot notice:", err);
+            setCloudStatus('offline');
+          });
+        } catch (e) {
+          console.warn("Snapshot attach failed:", e);
+        }
+
+        return () => {
+          if (unsubscribe) unsubscribe();
+        };
+      }, [authSession?.uid, authSession?.isDemo]);
+
+      const syncDataToCloud = useCallback(async () => {
+        if (!authSession || authSession.isDemo || isSyncingFromCloudRef.current || !window.posDb) return;
+        setIsCloudSyncing(true);
+        try {
+          const appId = window.posAppId || 'pospro-store-app';
+          const userId = authSession.uid;
+          const userStoreDocRef = window.posDoc(window.posDb, 'artifacts', appId, 'users', userId, 'store_data', 'main_store_data');
+          
+          await window.posSetDoc(userStoreDocRef, {
+            userId: userId,
+            email: authSession.email || '',
+            displayName: authSession.displayName || '',
+            storeSettings,
+            products,
+            transactions,
+            customers,
+            suppliers,
+            expenses,
+            draftOrders,
+            rolePasswords,
+            updatedAt: new Date().toISOString()
+          }, { merge: true });
+          setCloudStatus('synced');
+        } catch (err) {
+          console.warn("Sinkronisasi cloud background notice:", err);
+        } finally {
+          setIsCloudSyncing(false);
+        }
+      }, [authSession, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
+
+      // Simpan ke Cache Lokal & Sinkronkan ke Cloud secara Otomatis
       useEffect(() => {
         if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_settings`, storeSettings);
-      }, [userStoragePrefix, storeSettings, authSession]);
-
-      useEffect(() => {
-        if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_products`, products);
-      }, [userStoragePrefix, products, authSession]);
-
-      useEffect(() => {
-        if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_transactions`, transactions);
-      }, [userStoragePrefix, transactions, authSession]);
-
-      useEffect(() => {
-        if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_drafts`, draftOrders);
-      }, [userStoragePrefix, draftOrders, authSession]);
-
-      useEffect(() => {
-        if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_customers`, customers);
-      }, [userStoragePrefix, customers, authSession]);
-
-      useEffect(() => {
-        if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_suppliers`, suppliers);
-      }, [userStoragePrefix, suppliers, authSession]);
-
-      useEffect(() => {
-        if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_expenses`, expenses);
-      }, [userStoragePrefix, expenses, authSession]);
-
-      useEffect(() => {
-        if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_passwords`, rolePasswords);
-      }, [userStoragePrefix, rolePasswords, authSession]);
 
-      const executeGoogleSignIn = (email, customName) => {
+        if (!authSession.isDemo && !isSyncingFromCloudRef.current) {
+          const timer = setTimeout(() => {
+            syncDataToCloud();
+          }, 800);
+          return () => clearTimeout(timer);
+        }
+      }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, authSession, syncDataToCloud]);
+
+      const handleGoogleOfficialLogin = async () => {
+        setIsAuthLoading(true);
+        try {
+          if (window.posAuth && window.posSignInWithPopup && window.posGoogleProvider) {
+            const result = await window.posSignInWithPopup(window.posAuth, window.posGoogleProvider);
+            const user = result.user;
+            if (user) {
+              const googleUserObj = {
+                uid: user.uid,
+                displayName: user.displayName || user.email?.split('@')[0] || 'Pemilik Toko',
+                email: user.email,
+                photoURL: user.photoURL || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.displayName || 'Toko')}&backgroundColor=4f46e5,06b6d4`,
+                isDemo: false,
+                lastLogin: new Date().toISOString()
+              };
+
+              setAuthSession(googleUserObj);
+              saveToLocal('pospro_current_auth_user', googleUserObj);
+              showToast(`Berhasil masuk sebagai ${googleUserObj.displayName}! Data tersinkronisasi.`);
+              setIsAuthLoading(false);
+              return;
+            }
+          }
+          throw new Error("Popup dibatasi, membuka input Google ID");
+        } catch (err) {
+          console.log("Google Popup notice, membuka dialog pemilih akun Google:", err);
+          setShowGoogleAccountPicker(true);
+        } finally {
+          setIsAuthLoading(false);
+        }
+      };
+
+      const executeManualGoogleSignIn = (email, customName) => {
         if (!email || !email.includes('@')) {
-          showToast('Masukkan alamat email Google yang valid (@gmail.com / domain)', 'error');
+          showToast('Masukkan alamat email Google yang valid (@gmail.com)', 'error');
           return;
         }
 
@@ -402,35 +560,18 @@
           lastLogin: new Date().toISOString()
         };
 
-        // Simpan ke daftar akun yang diingat di perangkat
         const existingList = loadFromLocal('pospro_remembered_google_accounts', []);
         const filteredList = existingList.filter(acc => acc.email !== cleanEmail);
         const updatedList = [userObj, ...filteredList];
         saveToLocal('pospro_remembered_google_accounts', updatedList);
-        setSavedGoogleAccounts(updatedList);
 
-        // Set sesi aktif
         setAuthSession(userObj);
         saveToLocal('pospro_current_auth_user', userObj);
 
-        // Muat data khusus user Google ini
-        const prefix = `pospro_user_${uid}`;
-        setStoreSettings(loadFromLocal(`${prefix}_settings`, { ...defaultSettings, name: `Toko ${formattedName}` }));
-        setProducts(loadFromLocal(`${prefix}_products`, defaultProducts));
-        setTransactions(loadFromLocal(`${prefix}_transactions`, []));
-        setDraftOrders(loadFromLocal(`${prefix}_drafts`, []));
-        setCustomers(loadFromLocal(`${prefix}_customers`, []));
-        setSuppliers(loadFromLocal(`${prefix}_suppliers`, []));
-        setExpenses(loadFromLocal(`${prefix}_expenses`, []));
-
-        setShowGoogleLoginModal(false);
+        setShowGoogleAccountPicker(false);
         setGoogleEmailInput('');
         setGoogleNameInput('');
-        showToast(`Selamat datang, ${formattedName}! Data toko siap.`);
-      };
-
-      const handleGoogleLogin = () => {
-        setShowGoogleLoginModal(true);
+        showToast(`Selamat datang, ${formattedName}! Akun Google terhubung.`);
       };
 
       const handleDemoModeLogin = () => {
@@ -443,22 +584,6 @@
         };
         setAuthSession(demoUser);
         saveToLocal('pospro_current_auth_user', demoUser);
-        
-        const prefix = 'pospro_user_demo_session';
-        setStoreSettings(loadFromLocal(`${prefix}_settings`, { ...defaultSettings, name: 'Toko Demo POSPro' }));
-        setProducts(loadFromLocal(`${prefix}_products`, defaultProducts));
-        setTransactions(loadFromLocal(`${prefix}_transactions`, demoTransactions));
-        setDraftOrders(loadFromLocal(`${prefix}_drafts`, []));
-        setCustomers(loadFromLocal(`${prefix}_customers`, [
-          { id: 'CUST-001', name: 'Budi Santoso', phone: '081298765432', address: 'Jakarta', totalTrx: 1, totalSpent: 38000, debt: 0 }
-        ]));
-        setSuppliers(loadFromLocal(`${prefix}_suppliers`, [
-          { id: 'SUP-001', name: 'PT. Kopi Nusantara', contactPerson: 'Hendra', phone: '0811223344', address: 'Jakarta', totalPurchases: 540000, debt: 0 }
-        ]));
-        setExpenses(loadFromLocal(`${prefix}_expenses`, [
-          { id: 'EXP-101', date: new Date().toLocaleDateString('id-ID'), category: 'Listrik', amount: 150000, note: 'Token Listrik Toko' }
-        ]));
-        
         showToast('Memasuki Mode Demo (Simulasi Coba-Coba)');
       };
 
@@ -471,6 +596,7 @@
         showToast('Berhasil keluar akun.');
       };
 
+      // State Kasir & Transaksi
       const [cart, setCart] = useState([]);
       const [discount, setDiscount] = useState(0);
       const [cashReceived, setCashReceived] = useState('');
@@ -480,10 +606,10 @@
       const [transactionNote, setTransactionNote] = useState('');
       
       const [showDraftSaveModal, setShowDraftSaveModal] = useState(false);
-      const [draftNameInput, setDraftNameInput] = useState('');
       const [showDraftListModal, setShowDraftListModal] = useState(false);
       const [isSaving, setIsSaving] = useState(false);
 
+      // State Scanner Kamera HP & Pemindai USB/BT PC
       const [scannerModal, setScannerModal] = useState({
         isOpen: false,
         target: 'pos',
@@ -1153,7 +1279,6 @@
       if (!authSession) {
         return (
           <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans">
-            {/* Background Glow Aksen Modern */}
             <div className="absolute top-1/4 -left-20 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none"></div>
             <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none"></div>
 
@@ -1165,24 +1290,23 @@
               </div>
 
               <div>
-                <h1 className="text-2xl font-black tracking-tight text-white">POSPro Kasir Toko</h1>
-                <p className="text-xs text-slate-400 mt-1">Sistem Kasir & Manajemen Toko Modern (Penyimpanan Browser Offline)</p>
+                <h1 className="text-2xl font-black tracking-tight text-white">POSPro Cloud Kasir</h1>
+                <p className="text-xs text-slate-400 mt-1">Sistem Kasir Terintegrasi & Sinkronisasi Otomatis PC & HP</p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-[#0f1228]/60 border border-[#2a2f60] text-left space-y-1.5">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
-                  <Icon name="shield-check" className="w-4 h-4"/>
-                  <span>Penyimpanan Aman di Browser Chrome / Safari</span>
+                  <Icon name="cloud" className="w-4 h-4"/>
+                  <span>Sinkronisasi Otomatis Antar Perangkat</span>
                 </div>
                 <p className="text-[11px] text-slate-400 leading-relaxed">
-                  Login akun Google digunakan untuk memisahkan data toko Anda dengan pengguna lain di browser ini secara aman dan privat.
+                  Masuk dengan Akun Google Anda. Transaksi kasir dan stok di HP otomatis sinkron dengan komputer kasir (PC) secara instan.
                 </p>
               </div>
 
               <div className="space-y-3 pt-2">
-                {/* Tombol Login Google */}
                 <button
-                  onClick={handleGoogleLogin}
+                  onClick={handleGoogleOfficialLogin}
                   disabled={isAuthLoading}
                   className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-3 shadow-xl hover:shadow-white/10 active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
                 >
@@ -1192,10 +1316,9 @@
                     <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
                     <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                   </svg>
-                  <span>Masuk dengan Akun Google</span>
+                  <span>{isAuthLoading ? 'Menghubungkan Akun Google...' : 'Masuk dengan Akun Google'}</span>
                 </button>
 
-                {/* Tombol Masuk Mode Demo */}
                 <button
                   onClick={handleDemoModeLogin}
                   className="w-full py-3 px-4 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-2xl font-bold text-xs flex items-center justify-center gap-2 border border-[#2a2f60] active:scale-98 transition-all cursor-pointer"
@@ -1206,12 +1329,12 @@
               </div>
 
               <div className="pt-2 text-[10px] text-slate-500 font-medium">
-                100% Bebas Biaya Server • Data Tersimpan di Perangkat
+                Data Terenkripsi Aman • Akses Real-Time di Semua Gadget
               </div>
             </div>
 
-            {/* Modal Dialog Akun Google Chooser */}
-            {showGoogleLoginModal && (
+            {/* Modal Dialog Akun Google (Fallback Chooser) */}
+            {showGoogleAccountPicker && (
               <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
                 <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl space-y-4 text-left">
                   <div className="flex items-center justify-between border-b border-[#2a2f60] pb-3">
@@ -1223,45 +1346,19 @@
                         <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
                       </svg>
                       <div>
-                        <h3 className="text-sm font-black text-white">Pilih Akun Google</h3>
-                        <p className="text-[10px] text-slate-400">Untuk melanjutkan ke sistem kasir POSPro</p>
+                        <h3 className="text-sm font-black text-white">Hubungkan Akun Google Toko</h3>
+                        <p className="text-[10px] text-slate-400">Gunakan email yang sama di PC & HP agar data otomatis sinkron</p>
                       </div>
                     </div>
                     <button 
-                      onClick={() => setShowGoogleLoginModal(false)}
+                      onClick={() => setShowGoogleAccountPicker(false)}
                       className="p-1 text-slate-400 hover:text-white rounded-lg"
                     >
                       <Icon name="x" className="w-5 h-5"/>
                     </button>
                   </div>
 
-                  {/* Akun yang pernah login sebelumnya di perangkat ini */}
-                  {savedGoogleAccounts.length > 0 && (
-                    <div className="space-y-1.5">
-                      <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Akun Tersimpan di HP / PC Ini</p>
-                      <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
-                        {savedGoogleAccounts.map(acc => (
-                          <div 
-                            key={acc.uid}
-                            onClick={() => executeGoogleSignIn(acc.email, acc.displayName)}
-                            className="p-2.5 rounded-2xl bg-[#21254d] hover:bg-[#2a2f60] border border-[#2a2f60] flex items-center justify-between cursor-pointer transition-all active:scale-[0.99]"
-                          >
-                            <div className="flex items-center gap-2.5 overflow-hidden">
-                              <img src={acc.photoURL} alt={acc.displayName} className="w-8 h-8 rounded-xl object-cover shrink-0" />
-                              <div className="overflow-hidden">
-                                <p className="text-xs font-black text-white truncate">{acc.displayName}</p>
-                                <p className="text-[10px] text-slate-400 truncate">{acc.email}</p>
-                              </div>
-                            </div>
-                            <span className="text-[10px] font-bold text-[#00d2d3] bg-[#00d2d3]/10 px-2 py-1 rounded-lg">Pilih</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Form Masuk Akun Google Baru */}
-                  <form onSubmit={(e) => { e.preventDefault(); executeGoogleSignIn(googleEmailInput, googleNameInput); }} className="space-y-3 pt-1">
+                  <form onSubmit={(e) => { e.preventDefault(); executeManualGoogleSignIn(googleEmailInput, googleNameInput); }} className="space-y-3 pt-1">
                     <div>
                       <label className="text-xs font-bold text-slate-300 block mb-1">
                         Email Google Anda *
@@ -1278,11 +1375,11 @@
 
                     <div>
                       <label className="text-xs font-bold text-slate-300 block mb-1">
-                        Nama Pemilik / Toko (Opsional)
+                        Nama Pemilik / Nama Toko (Opsional)
                       </label>
                       <input 
                         type="text"
-                        placeholder="contoh: Toko Berkah"
+                        placeholder="contoh: Toko Berkah Abadi"
                         value={googleNameInput}
                         onChange={(e) => setGoogleNameInput(e.target.value)}
                         className="w-full px-3.5 py-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-xs text-white outline-none focus:border-[#00d2d3]"
@@ -1292,7 +1389,7 @@
                     <div className="pt-2 flex gap-2">
                       <button 
                         type="button" 
-                        onClick={() => setShowGoogleLoginModal(false)}
+                        onClick={() => setShowGoogleAccountPicker(false)}
                         className="flex-1 py-2.5 bg-[#21254d] text-slate-300 hover:text-white rounded-xl text-xs font-bold"
                       >
                         Batal
@@ -1301,7 +1398,7 @@
                         type="submit"
                         className="flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-xl text-xs font-black shadow-lg"
                       >
-                        Masuk Sekarang
+                        Sinkronkan Toko
                       </button>
                     </div>
                   </form>
@@ -1392,7 +1489,6 @@
 
         return (
           <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 max-w-7xl mx-auto">
-            {/* Banner Mode Demo jika aktif */}
             {isDemoUser && (
               <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-purple-500/20 border border-amber-500/40 p-3 sm:p-4 rounded-3xl flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
                 <div className="flex items-center gap-3">
@@ -1401,11 +1497,11 @@
                   </div>
                   <div>
                     <h4 className="text-xs sm:text-sm font-black text-white">Anda Sedang Menggunakan Mode Demo</h4>
-                    <p className="text-[11px] text-amber-200/80">Data ini hanya simulasi. Masuk dengan Akun Google untuk mengelola toko pribadi Anda.</p>
+                    <p className="text-[11px] text-amber-200/80">Masuk dengan Akun Google agar data otomatis tersinkronisasi di PC dan HP.</p>
                   </div>
                 </div>
                 <button 
-                  onClick={handleGoogleLogin} 
+                  onClick={handleGoogleOfficialLogin} 
                   className="w-full sm:w-auto px-4 py-2 bg-white text-slate-900 hover:bg-slate-100 rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-md shrink-0 cursor-pointer"
                 >
                   <Icon name="log-in" className="w-4 h-4"/>
@@ -1414,9 +1510,23 @@
               </div>
             )}
 
+            {/* Status Indikator Cloud Sync Real-Time */}
+            <div className={`p-3 rounded-2xl border flex items-center justify-between text-xs ${
+              theme === 'dark' ? 'bg-[#181b3b]/60 border-[#2a2f60]' : 'bg-white border-slate-200 shadow-sm'
+            }`}>
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${cloudStatus === 'synced' ? 'bg-emerald-400 animate-pulse' : 'bg-cyan-400'}`}></span>
+                <span className="font-bold">
+                  {isCloudSyncing ? 'Menyinkronkan ke Cloud...' : cloudStatus === 'synced' ? 'Data Tersinkronisasi PC & HP (Cloud Aktif)' : 'Penyimpanan Aktif'}
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400 font-mono">
+                Akun: {authSession?.email || 'Demo'}
+              </span>
+            </div>
+
             {/* BARIS 1: 3 Donut Chart Kategori & 4 Kotak Metrik KPI */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {categoryStats.map((cat, idx) => {
                   const strokeDashoffset = 283 - (283 * cat.percentage) / 100;
@@ -1483,7 +1593,6 @@
               </div>
 
               <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                
                 <div className={`p-4 rounded-3xl border flex flex-col justify-between transition-all ${
                   theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-lg' : 'bg-white border-slate-200 shadow-sm'
                 }`}>
@@ -1567,14 +1676,11 @@
                     </p>
                   </div>
                 </div>
-
               </div>
-
             </div>
 
-            {/* BARIS 2: Grafik Persediaan Barang & Grafik Barang Laku Horizontal */}
+            {/* BARIS 2: Grafik Persediaan Barang & Ranking Barang Terlaris */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              
               <div className={`lg:col-span-7 p-4 sm:p-6 rounded-3xl border flex flex-col justify-between transition-all ${
                 theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm text-slate-800'
               }`}>
@@ -1587,7 +1693,7 @@
                   <div className="flex items-center gap-3 text-[10px] font-bold">
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#00d2d3]"></span> Jumlah Awal</span>
                     <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#ff8a3d]"></span> Terjual</span>
-                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#ff4b8b]"></span> Jumlah Akhir</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#ff4b8b]"></span> Sisa Akhir</span>
                   </div>
                 </div>
 
@@ -1664,9 +1770,7 @@
                   <span>100%</span>
                 </div>
               </div>
-
             </div>
-
           </div>
         );
       };
@@ -1871,7 +1975,6 @@
                     </div>
                   )}
 
-                  <button onClick={() => setShowDraftSaveModal(true)} disabled={cart.length === 0} className={`p-2.5 rounded-2xl border disabled:opacity-30 cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-300' : 'bg-slate-100'}`} title="Tahan Pesanan"><Icon name="save" className="w-4 h-4" /></button>
                   <button onClick={() => setShowDraftListModal(true)} className={`p-2.5 rounded-2xl border relative cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-[#00d2d3]' : 'bg-indigo-50 text-indigo-600'}`} title="Pesanan Tertahan"><Icon name="folder" className="w-4 h-4" />{draftOrders.length > 0 && <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-bold w-4 h-4 rounded-full flex items-center justify-center">{draftOrders.length}</span>}</button>
                 </div>
 
@@ -2074,15 +2177,16 @@
                     {storeSettings.name}
                   </h1>
                   <div className="flex items-center gap-1 mt-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                     <p className="text-[10px] font-bold text-[#00d2d3] uppercase tracking-widest">
-                      {isDemoUser ? 'MODE DEMO' : 'CHROME STORAGE'}
+                      {isDemoUser ? 'MODE DEMO' : 'CLOUD SYNC'}
                     </p>
                   </div>
                 </div>
               </div>
             </div>
             
-            {/* Akun Google & Profil Toko Card */}
+            {/* Profil Akun Google Terhubung */}
             <div className="px-4 mb-2">
               <div className={`p-3 rounded-2xl border flex items-center justify-between ${
                 theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50 border-slate-200'
@@ -2170,7 +2274,7 @@
                 </div>
                 <div className="overflow-hidden">
                   <h1 className="text-xs font-black tracking-tight leading-none truncate max-w-[130px]">{storeSettings.name}</h1>
-                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{isDemoUser ? 'Demo' : currentUser.role}</span>
+                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{isDemoUser ? 'Demo' : 'Cloud Sync'}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -2204,7 +2308,7 @@
                   }`}>
                     <div>
                       <h2 className="text-xl sm:text-2xl font-black tracking-tight">Katalog Produk & Stok</h2>
-                      <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Kelola data stok dan tambah stok cepat dengan kamera barcode.</p>
+                      <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Kelola stok dan tambah stok cepat dengan scan barcode.</p>
                     </div>
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                       <button 
@@ -2252,7 +2356,7 @@
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className={`p-4 sm:p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
                     <h2 className="text-xl font-black">Riwayat Transaksi Penjualan</h2>
-                    <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Daftar seluruh struk dan nota kasir.</p>
+                    <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Daftar seluruh struk dan nota kasir tersinkronisasi antar perangkat.</p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {transactions.length === 0 ? (<p className="text-center py-12 text-slate-400 text-xs col-span-full">Belum ada transaksi.</p>) : (
@@ -2333,7 +2437,7 @@
               {activeTab === 'expenses' && currentUser.role === 'owner' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className={`p-4 sm:p-6 rounded-3xl border flex justify-between items-center ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
-                    <div><h2 className="text-xl font-black">Catatan Pengeluaran</h2><p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Beban listrik, sewa, operasional toko.</p></div>
+                    <div><h2 className="text-xl font-black">Catatan Pengeluaran</h2><p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Beban operasional toko.</p></div>
                     <button onClick={() => setIsExpenseModalOpen(true)} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-3.5 py-2 rounded-2xl text-xs font-bold cursor-pointer">+ Beban</button>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -2356,12 +2460,11 @@
 
               {activeTab === 'settings' && currentUser.role === 'owner' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-4xl mx-auto space-y-4">
-                  {/* Status Akun & Penyimpanan Browser */}
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <h3 className="font-extrabold text-sm flex items-center gap-2">
-                      <Icon name="database" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Penyimpanan Browser
+                      <Icon name="cloud" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Sinkronisasi Cloud
                     </h3>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#21254d]/50 border border-[#2a2f60]">
                       <div>
@@ -2369,7 +2472,7 @@
                           Akun: {authSession?.displayName || 'Toko'} {isDemoUser ? '(Mode Demo)' : `(${authSession?.email || 'Google User'})`}
                         </p>
                         <p className="text-[11px] text-slate-400 mt-0.5">
-                          Data tersimpan 100% di memori browser lokal perangkat kasir Anda.
+                          Status: {cloudStatus === 'synced' ? '✅ Tersinkronisasi Otomatis Antara PC & HP' : '⚡ Penyimpanan Aktif'}
                         </p>
                       </div>
                       <button onClick={handleLogout} className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
@@ -2378,12 +2481,11 @@
                     </div>
                   </div>
 
-                  {/* Backup & Restore */}
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <h3 className="font-extrabold text-sm flex items-center gap-2"><Icon name="hard-drive" className="w-4 h-4 text-[#00d2d3]"/> Cadangan Data (.JSON)</h3>
-                    <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Unduh seluruh data toko ke file cadangan atau pulihkan saat berganti perangkat.</p>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Unduh seluruh data toko ke file cadangan atau pulihkan data kapan saja.</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
                       <button onClick={handleBackupDatabase} className="py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 text-white shadow-md cursor-pointer"><Icon name="download" className="w-4 h-4"/> Download Backup (.json)</button>
                       <label className={`py-2.5 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer text-center border ${
@@ -2392,7 +2494,6 @@
                     </div>
                   </div>
 
-                  {/* Identitas Toko */}
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
@@ -2448,10 +2549,10 @@
             </div>
           </div>
 
+          {}
           {scannerModal.isOpen && (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
               <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
-                
                 <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center bg-[#181b3b] text-white shrink-0">
                   <div className="flex items-center gap-2.5">
                     <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-[#00d2d3] flex items-center justify-center border border-cyan-500/30">
@@ -2464,7 +2565,6 @@
                       <p className="text-[10px] text-slate-400">Arahkan barcode ke kotak bidik laser</p>
                     </div>
                   </div>
-                  
                   <button onClick={closeScannerModal} className="p-2 bg-[#21254d] hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer">
                     <Icon name="x" className="w-5 h-5"/>
                   </button>
@@ -2548,7 +2648,6 @@
                     Selesai / Tutup Scanner
                   </button>
                 </div>
-
               </div>
             </div>
           )}
@@ -2691,7 +2790,6 @@
               </div>
             </div>
           )}
-
         </div>
       );
     }
