@@ -58,28 +58,39 @@
       left: 6%;
       right: 6%;
       height: 3px;
-      background: linear-gradient(90deg, transparent, #ef4444, #f43f5e, #ef4444, transparent);
-      box-shadow: 0 0 14px 3px rgba(239, 68, 68, 0.85);
+      background: linear-gradient(90deg, transparent, #22c55e, #4ade80, #22c55e, transparent);
+      box-shadow: 0 0 14px 3px rgba(34, 197, 94, 0.85);
       animation: scanLaser 2s infinite ease-in-out;
       border-radius: 9999px;
       z-index: 25;
       pointer-events: none;
     }
 
-    /* Penyesuaian viewport kamera Html5Qrcode */
+    /* Penyesuaian viewport kamera Html5Qrcode untuk iOS & Android */
+    #scanner-reader {
+      position: relative !important;
+      width: 100% !important;
+      height: 100% !important;
+      background: #000 !important;
+      border: none !important;
+      overflow: hidden !important;
+    }
     #scanner-reader video {
       width: 100% !important;
       height: 100% !important;
       object-fit: cover !important;
-      border-radius: 1rem !important;
+      display: block !important;
+      opacity: 1 !important;
+      visibility: visible !important;
     }
-    #scanner-reader {
-      border: none !important;
-      width: 100% !important;
-      height: 100% !important;
+    #scanner-reader canvas {
+      display: none !important;
     }
     #scanner-reader__scan_region {
       background: transparent !important;
+    }
+    #scanner-reader__dashboard {
+      display: none !important;
     }
   </style>
 </head>
@@ -425,71 +436,69 @@
                 barcodeBufferRef.current = '';
               }
             }
-            barcodeBufferRef.current = '';
-          } else if (e.key.length === 1) {
+          } else if (e.key && e.key.length === 1) {
             barcodeBufferRef.current += e.key;
           }
         };
 
         window.addEventListener('keydown', handleGlobalBarcodeScanner);
         return () => window.removeEventListener('keydown', handleGlobalBarcodeScanner);
-      }, [activeTab, products, addToCart, searchQuery, scannerModal.isOpen, isProductModalOpen, showDraftSaveModal]);
+      }, [activeTab, products, searchQuery, addToCart, scannerModal.isOpen, isProductModalOpen, showDraftSaveModal]);
 
-      // Menutup dan menghentikan kamera scanner
-      const closeScannerModal = useCallback(() => {
+      // Menutup modal pemindai kamera & mematikan kamera dengan aman
+      const closeScannerModal = useCallback(async () => {
         if (scannerInstanceRef.current) {
           try {
-            scannerInstanceRef.current.stop().then(() => {
-              try { scannerInstanceRef.current.clear(); } catch(e){}
-              scannerInstanceRef.current = null;
-            }).catch(() => {
-              scannerInstanceRef.current = null;
-            });
-          } catch(e) {
-            scannerInstanceRef.current = null;
+            await scannerInstanceRef.current.stop();
+            await scannerInstanceRef.current.clear();
+          } catch (e) {
+            console.warn("Scanner stop error:", e);
           }
+          scannerInstanceRef.current = null;
         }
-        setScannerModal(prev => ({ ...prev, isOpen: false, errorMsg: '', isLoadingCamera: false }));
-        setIsProcessingImage(false);
+        setScannerModal(prev => ({
+          ...prev,
+          isOpen: false,
+          errorMsg: '',
+          isLoadingCamera: false
+        }));
       }, []);
 
-      // Handler Hasil Pemindaian Barcode Kamera
+      // Menangani kode barcode yang berhasil dideteksi dari live kamera atau foto
       const handleScannedBarcode = useCallback((decodedText) => {
         if (!decodedText) return;
-        const cleanCode = decodedText.trim().toUpperCase();
+        const cleanCode = String(decodedText).trim().toUpperCase();
+        
         const now = Date.now();
-
-        // Mencegah scan ganda beruntun pada barcode yang sama (Cooldown 1.2 detik)
-        if (now - lastScanTimeRef.current < 1200 && scannerModal.lastScanned === cleanCode) {
-          return;
+        if (now - lastScanTimeRef.current < 1500) {
+          return; // Mencegah scan ganda dalam 1.5 detik
         }
         lastScanTimeRef.current = now;
-
         playScanBeep();
+
+        setScannerModal(prev => ({ ...prev, lastScanned: cleanCode }));
 
         if (scannerModal.target === 'product_form') {
           setProductForm(prev => ({ ...prev, sku: cleanCode }));
-          showToast(`Barcode SKU: ${cleanCode}`);
+          showToast(`SKU Barcode ${cleanCode} berhasil dimasukkan!`);
           closeScannerModal();
         } else {
           const matchedProduct = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (matchedProduct) {
             const added = addToCart(matchedProduct);
             if (added) {
-              setScannerModal(prev => ({ ...prev, lastScanned: cleanCode, errorMsg: '' }));
-              showToast(`+1 ${matchedProduct.name} masuk keranjang!`);
+              showToast(`+1 ${matchedProduct.name} (${cleanCode})!`);
             }
             if (!scannerModal.continuousMode) {
               closeScannerModal();
             }
           } else {
-            setScannerModal(prev => ({ ...prev, errorMsg: `Barcode "${cleanCode}" tidak ditemukan di database!` }));
-            showToast(`Barcode "${cleanCode}" belum terdaftar!`, 'error');
+            showToast(`Barcode "${cleanCode}" belum terdaftar di katalog!`, 'error');
           }
         }
-      }, [scannerModal, products, addToCart, closeScannerModal]);
+      }, [scannerModal.target, scannerModal.continuousMode, products, addToCart, closeScannerModal]);
 
-      // Memindai foto barcode dari Kamera Bawaan HP atau Galeri
+      // Memindai foto barcode dari Kamera Bawaan HP atau Galeri (dengan auto-downscale resolusi iPhone)
       const handleImageFileScan = async (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
@@ -498,6 +507,54 @@
         setScannerModal(prev => ({ ...prev, errorMsg: '', isLoadingCamera: false }));
 
         try {
+          // Downscale foto beresolusi tinggi (iPhone 12MP/48MP) agar dapat dibaca cepat dan tidak memory crash
+          const downscaledBlob = await new Promise((resolve, reject) => {
+            const img = new Image();
+            const url = URL.createObjectURL(file);
+            img.onload = () => {
+              URL.revokeObjectURL(url);
+              const maxDim = 1200;
+              let { width, height } = img;
+              if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                  height = Math.round((height * maxDim) / width);
+                  width = maxDim;
+                } else {
+                  width = Math.round((width * maxDim) / height);
+                  height = maxDim;
+                }
+              }
+              const canvas = document.createElement('canvas');
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, width, height);
+
+              // Coba gunakan BarcodeDetector native jika didukung perangkat
+              if ('BarcodeDetector' in window) {
+                const detector = new window.BarcodeDetector();
+                detector.detect(canvas).then(barcodes => {
+                  if (barcodes && barcodes.length > 0) {
+                    resolve({ text: barcodes[0].rawValue });
+                  } else {
+                    canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', 0.9);
+                  }
+                }).catch(() => {
+                  canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', 0.9);
+                });
+              } else {
+                canvas.toBlob((blob) => resolve(blob || file), 'image/jpeg', 0.9);
+              }
+            };
+            img.onerror = () => reject(new Error("Gagal membaca file gambar"));
+            img.src = url;
+          });
+
+          if (downscaledBlob && downscaledBlob.text) {
+            handleScannedBarcode(downscaledBlob.text);
+            return;
+          }
+
           if (typeof window.Html5Qrcode === 'undefined') {
             throw new Error("Pustaka pemindai belum siap.");
           }
@@ -514,13 +571,15 @@
             scanner = new window.Html5Qrcode('scanner-file-helper');
           }
 
-          const decodedText = await scanner.scanFile(file, true);
+          const fileToScan = downscaledBlob instanceof Blob ? new File([downscaledBlob], 'scan.jpg', { type: 'image/jpeg' }) : file;
+          const decodedText = await scanner.scanFile(fileToScan, true);
           if (decodedText) {
             handleScannedBarcode(decodedText);
           } else {
             throw new Error("Barcode tidak terbaca.");
           }
         } catch (err) {
+          console.warn("Scan photo error:", err);
           setScannerModal(prev => ({
             ...prev,
             errorMsg: 'Barcode tidak terdeteksi pada foto. Pastikan barcode tegak, tidak blur, dan pencahayaan cukup.'
@@ -533,7 +592,7 @@
         }
       };
 
-      // Fungsi menyalakan live kamera secara langsung (Direct User Gesture)
+      // Fungsi menyalakan live kamera secara langsung dengan penyesuaian khusus iOS WebKit
       const startLiveCamera = async () => {
         setScannerModal(prev => ({ ...prev, isLoadingCamera: true, errorMsg: '' }));
 
@@ -552,7 +611,7 @@
             throw new Error("Elemen pemindai belum siap");
           }
 
-          const html5QrCode = new window.Html5Qrcode('scanner-reader');
+          const html5QrCode = new window.Html5Qrcode('scanner-reader', { verbose: false });
           scannerInstanceRef.current = html5QrCode;
 
           const formats = (window.Html5QrcodeSupportedFormats) ? [
@@ -567,14 +626,29 @@
 
           const config = {
             fps: 20,
-            qrbox: { width: 260, height: 160 },
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
+              return { width: Math.floor(minEdge * 0.75), height: Math.floor(minEdge * 0.55) };
+            },
             aspectRatio: 1.0,
             videoConstraints: {
-              facingMode: "environment",
-              playsinline: true
+              facingMode: { ideal: "environment" }
             },
             ...(formats ? { formatsToSupport: formats } : {})
           };
+
+          // Pasang observer agar elemen <video> di iOS Safari menerima atribut playsinline & autoplay yang valid
+          const videoPatcher = setInterval(() => {
+            const vid = document.querySelector('#scanner-reader video');
+            if (vid) {
+              vid.setAttribute('playsinline', 'true');
+              vid.setAttribute('webkit-playsinline', 'true');
+              vid.muted = true;
+              if (vid.paused) {
+                vid.play().catch(() => {});
+              }
+            }
+          }, 200);
 
           try {
             await html5QrCode.start(
@@ -598,13 +672,14 @@
             }
           }
 
+          setTimeout(() => clearInterval(videoPatcher), 3000);
           setScannerModal(prev => ({ ...prev, isLoadingCamera: false, errorMsg: '' }));
         } catch (err) {
           console.warn("Camera start error:", err);
           setScannerModal(prev => ({ 
             ...prev, 
             isLoadingCamera: false,
-            errorMsg: 'Izin kamera live dibatasi oleh browser. Gunakan tombol "Ambil Foto Barcode" di bawah untuk langsung scan dengan kamera bawaan HP.' 
+            errorMsg: 'Izin kamera live dibatasi oleh browser. Gunakan tombol "Foto Barcode" di bawah untuk langsung scan dengan kamera bawaan HP.' 
           }));
         }
       };
@@ -1891,7 +1966,7 @@
                   {/* Laser Bidik Scanner Aktif */}
                   {!scannerModal.isLoadingCamera && !scannerModal.errorMsg && !isProcessingImage && (
                     <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-6 z-20">
-                      <div className="relative w-64 h-44 border-2 border-emerald-400/60 rounded-2xl overflow-hidden shadow-[0_0_0_9999px_rgba(0,0,0,0.5)]">
+                      <div className="relative w-64 h-44 border-2 border-emerald-400/80 rounded-2xl overflow-hidden">
                         <div className="scanner-laser-line"></div>
                         <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-emerald-400 rounded-tl-lg"></div>
                         <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-emerald-400 rounded-tr-lg"></div>
