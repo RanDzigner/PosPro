@@ -2106,6 +2106,39 @@
               </div>
             </div>
 
+            {/* Bilah Tab Navigasi Atas Khusus Mobile (Mencegah terhalang bar bawah Safari/Chrome) */}
+            <div className={`lg:hidden flex items-center gap-1.5 px-3 py-2 z-20 shrink-0 border-b overflow-x-auto no-scrollbar shadow-sm ${
+              theme === 'dark' ? 'bg-[#181b3b]/95 border-[#2a2f60] backdrop-blur-md' : 'bg-white/95 border-slate-200 backdrop-blur-md'
+            }`}>
+              {[
+                { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard', roles: ['owner', 'admin'] },
+                { id: 'pos', icon: 'calculator', label: 'Kasir POS', roles: ['owner', 'admin', 'kasir'] },
+                { id: 'inventory', icon: 'package', label: 'Produk & Stok', roles: ['owner', 'admin', 'kasir'] },
+                { id: 'transactions', icon: 'history', label: 'Riwayat Nota', roles: ['owner', 'admin', 'kasir'] },
+                { id: 'customers', icon: 'users', label: 'Pelanggan', roles: ['owner', 'admin'] },
+                { id: 'suppliers', icon: 'truck', label: 'Supplier', roles: ['owner'] },
+                { id: 'expenses', icon: 'receipt', label: 'Pengeluaran', roles: ['owner'] },
+                { id: 'reports', icon: 'pie-chart', label: 'Laporan', roles: ['owner'] },
+                { id: 'settings', icon: 'settings', label: 'Pengaturan', roles: ['owner'] }
+              ].filter(item => item.roles.includes(currentUser.role)).map(item => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id)}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all cursor-pointer shrink-0 ${
+                      isActive 
+                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md shadow-indigo-500/20' 
+                        : (theme === 'dark' ? 'bg-[#21254d]/70 text-slate-300 hover:text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200')
+                    }`}
+                  >
+                    <Icon name={item.icon} className={`w-3.5 h-3.5 ${isActive ? 'text-[#00d2d3]' : ''}`} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
             <div className="flex-1 overflow-y-auto">
               {activeTab === 'dashboard' && currentUser.role !== 'kasir' && renderDashboard()}
               {activeTab === 'pos' && renderPOS()}
@@ -2335,35 +2368,6 @@
                   </div>
                 </div>
               )}
-            </div>
-
-            <div className={`lg:hidden flex items-center justify-around py-2 px-2 z-30 pb-safe shrink-0 shadow-2xl border-t ${
-              theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60]' : 'bg-white border-slate-200'
-            }`}>
-              {[
-                { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard', roles: ['owner', 'admin'] },
-                { id: 'pos', icon: 'calculator', label: 'Kasir', roles: ['owner', 'admin', 'kasir'] },
-                { id: 'inventory', icon: 'package', label: 'Produk', roles: ['owner', 'admin', 'kasir'] },
-                { id: 'transactions', icon: 'history', label: 'Riwayat', roles: ['owner', 'admin', 'kasir'] },
-                { id: 'reports', icon: 'pie-chart', label: 'Laporan', roles: ['owner'] },
-                { id: 'settings', icon: 'settings', label: 'Toko', roles: ['owner'] }
-              ].filter(item => item.roles.includes(currentUser.role)).map(item => {
-                const isActive = activeTab === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    onClick={() => setActiveTab(item.id)}
-                    className={`flex flex-col items-center justify-center py-1 px-3 rounded-2xl transition-all cursor-pointer ${
-                      isActive 
-                        ? (theme === 'dark' ? 'text-[#00d2d3] font-black bg-[#21254d]' : 'text-indigo-600 font-black bg-indigo-50') 
-                        : 'text-slate-400 font-semibold'
-                    }`}
-                  >
-                    <Icon name={item.icon} className="w-4 h-4 mb-0.5" />
-                    <span className="text-[10px]">{item.label}</span>
-                  </button>
-                );
-              })}
             </div>
           </div>
 
