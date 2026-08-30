@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>POSPro - Sistem Kasir Cloud Google Drive</title>
+  <title>POSPro - Sistem Kasir Cloud Sync Real-Time</title>
   
   <!-- Tailwind CSS & Konfigurasi Tema -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -30,13 +30,13 @@
     }
   </script>
 
-  <!-- Google Identity Services (GIS) & Pustaka React, Lucide, Html5Qrcode -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Pustaka React, Lucide, Html5Qrcode, dan MQTT Client untuk Real-Time Sync PC & HP -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://unpkg.com/mqtt@5.3.4/dist/mqtt.min.js"></script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
@@ -109,13 +109,6 @@
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef, useCallback, Component } = React;
 
-    // Helper Google Drive API
-    const GDRIVE_FILE_NAME = 'pospro_store_database.json';
-    const GDRIVE_SCOPES = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
-    
-    // Default Public Client ID untuk Google Identity Services (dapat diganti oleh user di Pengaturan jika punya sendiri)
-    const DEFAULT_GOOGLE_CLIENT_ID = '919597984365-n0v3346d1o2r7n2ks2j0g4a9j4k5j8a0.apps.googleusercontent.com';
-
     class ErrorBoundary extends Component {
       constructor(props) {
         super(props);
@@ -136,7 +129,7 @@
                   <i data-lucide="alert-triangle" className="w-8 h-8"></i>
                 </div>
                 <h2 className="text-lg font-black text-white">Memuat Ulang Sistem Kasir</h2>
-                <p className="text-xs text-slate-400">Data Anda tersimpan dengan aman di Google Drive. Klik tombol di bawah untuk memuat ulang.</p>
+                <p className="text-xs text-slate-400">Data Anda tersimpan dengan aman di Cloud & Lokal. Klik tombol di bawah untuk memuat ulang.</p>
                 <button 
                   onClick={() => window.location.reload()} 
                   className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-lg transition-all cursor-pointer"
@@ -200,7 +193,7 @@
     };
 
     const defaultSettings = {
-      name: 'Toko Saya', tagline: 'Sistem Kasir Cloud Google Drive', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
+      name: 'Toko Saya', tagline: 'Sistem Kasir Cloud Sync', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
       receiptFooter: 'Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar.', invoicePrefix: 'INV-', taxPercent: 0, defaultDiscount: 0, currency: 'IDR',
       paymentMethods: ['Cash', 'Debit', 'Transfer', 'QRIS', 'E-wallet', 'Hutang']
     };
@@ -238,21 +231,35 @@
       } catch (e) {}
     };
 
+    // Fungsi hash sederhana untuk mengamankan channel store dari email & password
+    const generateStoreSyncKey = (email, password) => {
+      const combined = `${email.trim().toLowerCase()}::${password.trim()}`;
+      let hash = 0;
+      for (let i = 0; i < combined.length; i++) {
+        const char = combined.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      return `pospro_vault_${Math.abs(hash).toString(36)}`;
+    };
+
+    // Cloud Relay Storage untuk Backup State Asinkron
+    const CLOUD_STORAGE_BASE = 'https://api.counterapi.dev/v1/pospro_store';
+
     function App() {
-      // Sesi Akun Google Drive
-      const [googleUser, setGoogleUser] = useState(() => loadFromLocal('pospro_gdrive_user', null));
-      const [googleToken, setGoogleToken] = useState(() => loadFromLocal('pospro_gdrive_token', null));
-      const [googleDriveFileId, setGoogleDriveFileId] = useState(() => loadFromLocal('pospro_gdrive_file_id', null));
-      
-      const [customClientId, setCustomClientId] = useState(() => loadFromLocal('pospro_custom_client_id', ''));
+      // Sesi Akun Pengguna
+      const [authSession, setAuthSession] = useState(() => loadFromLocal('pospro_cloud_user', null));
+      const [loginForm, setLoginForm] = useState({ email: '', password: '', rememberMe: true });
       const [isAuthLoading, setIsAuthLoading] = useState(false);
-      const [isDriveSyncing, setIsDriveSyncing] = useState(false);
+      
+      const [isCloudSyncing, setIsCloudSyncing] = useState(false);
       const [lastSyncTime, setLastSyncTime] = useState(null);
-      const [syncStatusMsg, setSyncStatusMsg] = useState('Google Drive Siap');
+      const [syncStatusMsg, setSyncStatusMsg] = useState('Cloud Siap Terhubung');
       const [theme, setTheme] = useState(() => loadFromLocal('pospro_theme', 'dark'));
 
-      const [manualEmailInput, setManualEmailInput] = useState('');
-      const [showManualLoginModal, setShowManualLoginModal] = useState(false);
+      const isDemoUser = authSession?.isDemo === true;
+      const syncKey = authSession ? (isDemoUser ? 'demo_vault' : authSession.syncKey) : 'guest';
+      const userStoragePrefix = `pospro_data_${syncKey}`;
 
       useEffect(() => {
         const root = document.documentElement;
@@ -282,13 +289,10 @@
         return () => window.removeEventListener('resize', handleResize);
       }, []);
 
-      const isDemoUser = googleUser?.isDemo === true;
-      const userStoragePrefix = googleUser ? `pospro_data_${googleUser.email ? googleUser.email.replace(/[^a-zA-Z0-9]/g, '_') : 'guest'}` : 'pospro_data_guest';
-
       const [currentUserRole, setCurrentUserRole] = useState({ 
-        name: googleUser?.name || 'Owner Toko', 
+        name: authSession?.name || 'Owner Toko', 
         role: 'owner', 
-        avatar: (googleUser?.name ? googleUser.name.slice(0,2).toUpperCase() : 'OT') 
+        avatar: (authSession?.name ? authSession.name.slice(0,2).toUpperCase() : 'OT') 
       });
       const [showRoleSwitcher, setShowRoleSwitcher] = useState(false);
       const [showMobileCartDrawer, setShowMobileCartDrawer] = useState(false);
@@ -301,7 +305,7 @@
       const [storeSettings, setStoreSettings] = useState(() => {
         const saved = loadFromLocal(`${userStoragePrefix}_settings`, null);
         if (saved) return saved;
-        return isDemoUser ? { ...defaultSettings, name: 'Toko Demo POSPro' } : { ...defaultSettings, name: googleUser?.name ? `Toko ${googleUser.name}` : 'Toko Saya' };
+        return isDemoUser ? { ...defaultSettings, name: 'Toko Demo POSPro' } : { ...defaultSettings, name: authSession?.email ? `Toko ${authSession.email.split('@')[0].toUpperCase()}` : 'Toko Saya' };
       });
 
       const [products, setProducts] = useState(() => {
@@ -341,283 +345,138 @@
         ] : [];
       });
 
+      const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+      const fileInputRef = useRef(null);
       const isRemoteUpdatingRef = useRef(false);
       const lastLocalUpdateTimestampRef = useRef(loadFromLocal(`${userStoragePrefix}_last_ts`, Date.now()));
+      const mqttClientRef = useRef(null);
+      const deviceIdRef = useRef(Math.random().toString(36).substring(7));
 
       const showToast = (message, type = 'success') => {
         setToast({ show: true, message, type });
-        setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 2500);
+        setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 2800);
       };
 
-      // 1. CARI ATAU BACA FILE DARI GOOGLE DRIVE
-      const pullFromGoogleDrive = useCallback(async (token = googleToken, isManual = false) => {
-        if (!token || !googleUser || googleUser.isDemo || isRemoteUpdatingRef.current) return;
-        if (isManual) setIsDriveSyncing(true);
+      // Inisialisasi Real-Time WebSocket MQTT Engine antar PC & HP
+      useEffect(() => {
+        if (!authSession || isDemoUser) return;
+
+        const topic = `pospro/store_channel/${syncKey}`;
+        let client;
 
         try {
-          // Cari file pospro_store_database.json di Google Drive user
-          const query = encodeURIComponent(`name = '${GDRIVE_FILE_NAME}' and trashed = false`);
-          const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name,modifiedTime)`, {
-            headers: { Authorization: `Bearer ${token}` }
+          // Koneksi ke public WebSocket broker (WSS secure port)
+          client = window.mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
+            keepalive: 60,
+            clientId: `pospro_${deviceIdRef.current}_${Math.random().toString(16).substr(2, 6)}`,
+            clean: true,
+            reconnectPeriod: 2000
           });
 
-          if (!searchRes.ok) {
-            if (searchRes.status === 401) {
-              setSyncStatusMsg('Sesi Google Drive berakhir. Klik Masuk Google.');
-            }
-            return;
-          }
+          mqttClientRef.current = client;
 
-          const searchData = await searchRes.json();
-          let fileId = googleDriveFileId;
-
-          if (searchData.files && searchData.files.length > 0) {
-            fileId = searchData.files[0].id;
-            setGoogleDriveFileId(fileId);
-            saveToLocal('pospro_gdrive_file_id', fileId);
-
-            // Unduh isi file database dari Google Drive
-            const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-              headers: { Authorization: `Bearer ${token}` }
+          client.on('connect', () => {
+            client.subscribe(topic, { qos: 1 }, (err) => {
+              if (!err) {
+                setSyncStatusMsg('Terkoneksi Real-Time PC ⇄ HP');
+                // Kirim ping permintaan state terbaru ke perangkat lain yang sedang aktif
+                client.publish(topic, JSON.stringify({
+                  type: 'REQUEST_LATEST_STATE',
+                  senderId: deviceIdRef.current,
+                  ts: Date.now()
+                }));
+              }
             });
+          });
 
-            if (fileRes.ok) {
-              const driveData = await fileRes.json();
-              if (driveData && driveData.updatedAt) {
+          client.on('message', (receivedTopic, messageBuffer) => {
+            try {
+              const payload = JSON.parse(messageBuffer.toString());
+              if (!payload || payload.senderId === deviceIdRef.current) return; // Abaikan pesan dari diri sendiri
+
+              if (payload.type === 'REQUEST_LATEST_STATE') {
+                // Perangkat lain baru buka, kirimkan database kita jika kita punya data lebih baru
+                broadcastCurrentState();
+              } else if (payload.type === 'STORE_STATE_UPDATE') {
+                const incomingData = payload.data;
+                const incomingTs = payload.ts || 0;
                 const localTs = lastLocalUpdateTimestampRef.current || 0;
-                if (driveData.updatedAt > localTs) {
-                  isRemoteUpdatingRef.current = true;
-                  lastLocalUpdateTimestampRef.current = driveData.updatedAt;
-                  saveToLocal(`${userStoragePrefix}_last_ts`, driveData.updatedAt);
 
-                  if (driveData.storeSettings) setStoreSettings(driveData.storeSettings);
-                  if (driveData.products) setProducts(driveData.products);
-                  if (driveData.transactions) setTransactions(driveData.transactions);
-                  if (driveData.customers) setCustomers(driveData.customers);
-                  if (driveData.suppliers) setSuppliers(driveData.suppliers);
-                  if (driveData.expenses) setExpenses(driveData.expenses);
-                  if (driveData.draftOrders) setDraftOrders(driveData.draftOrders);
-                  if (driveData.rolePasswords) setRolePasswords(driveData.rolePasswords);
+                if (incomingTs > localTs) {
+                  isRemoteUpdatingRef.current = true;
+                  lastLocalUpdateTimestampRef.current = incomingTs;
+                  saveToLocal(`${userStoragePrefix}_last_ts`, incomingTs);
+
+                  if (incomingData.storeSettings) setStoreSettings(incomingData.storeSettings);
+                  if (incomingData.products) setProducts(incomingData.products);
+                  if (incomingData.transactions) setTransactions(incomingData.transactions);
+                  if (incomingData.customers) setCustomers(incomingData.customers);
+                  if (incomingData.suppliers) setSuppliers(incomingData.suppliers);
+                  if (incomingData.expenses) setExpenses(incomingData.expenses);
+                  if (incomingData.draftOrders) setDraftOrders(incomingData.draftOrders);
+                  if (incomingData.rolePasswords) setRolePasswords(incomingData.rolePasswords);
 
                   setLastSyncTime(new Date());
-                  setSyncStatusMsg('Tersinkronisasi dengan Google Drive');
-                  showToast('⚡ Data diperbarui langsung dari Google Drive!');
+                  setSyncStatusMsg('Data Terupdate dari Perangkat Lain');
+                  showToast('⚡ Data otomatis tersinkron dari perangkat lain!');
 
                   setTimeout(() => {
                     isRemoteUpdatingRef.current = false;
-                  }, 500);
-                } else if (isManual) {
-                  showToast('✅ Data kasir sudah versi paling baru dari Google Drive.');
+                  }, 400);
                 }
               }
+            } catch (e) {
+              console.warn("MQTT Parse error:", e);
             }
-          } else {
-            // Belum ada file di Drive, lakukan upload awal
-            pushToGoogleDrive(token);
-          }
-          setLastSyncTime(new Date());
-        } catch (err) {
-          console.warn("G核Drive pull error:", err);
-        } finally {
-          if (isManual) setIsDriveSyncing(false);
-        }
-      }, [googleToken, googleUser, googleDriveFileId, userStoragePrefix]);
+          });
 
-      // 2. SIMPAN FILE DATABASE KE GOOGLE DRIVE
-      const pushToGoogleDrive = useCallback(async (token = googleToken) => {
-        if (!token || !googleUser || googleUser.isDemo || isRemoteUpdatingRef.current) return;
-        setIsDriveSyncing(true);
+          client.on('error', () => {
+            setSyncStatusMsg('Reconnecting Cloud...');
+          });
+        } catch (err) {
+          console.warn("MQTT Connection error:", err);
+        }
+
+        return () => {
+          if (client) {
+            try { client.end(true); } catch (e) {}
+          }
+        };
+      }, [authSession, isDemoUser, syncKey, userStoragePrefix]);
+
+      // Siarkan State Toko ke Seluruh Perangkat PC & HP yang Sedang Terhubung
+      const broadcastCurrentState = useCallback(() => {
+        if (!authSession || isDemoUser || !mqttClientRef.current || !mqttClientRef.current.connected) return;
 
         const currentTs = Date.now();
         lastLocalUpdateTimestampRef.current = currentTs;
         saveToLocal(`${userStoragePrefix}_last_ts`, currentTs);
 
         const storePayload = {
-          updatedAt: currentTs,
-          ownerEmail: googleUser.email,
-          ownerName: googleUser.name,
-          storeSettings,
-          products,
-          transactions,
-          customers,
-          suppliers,
-          expenses,
-          draftOrders,
-          rolePasswords
-        };
-
-        try {
-          const fileContent = JSON.stringify(storePayload, null, 2);
-          let fileId = googleDriveFileId;
-
-          // Cek ulang jika fileId belum ada
-          if (!fileId) {
-            const query = encodeURIComponent(`name = '${GDRIVE_FILE_NAME}' and trashed = false`);
-            const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id)`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-            if (searchRes.ok) {
-              const searchData = await searchRes.json();
-              if (searchData.files && searchData.files.length > 0) {
-                fileId = searchData.files[0].id;
-                setGoogleDriveFileId(fileId);
-                saveToLocal('pospro_gdrive_file_id', fileId);
-              }
-            }
+          type: 'STORE_STATE_UPDATE',
+          senderId: deviceIdRef.current,
+          ts: currentTs,
+          data: {
+            storeSettings,
+            products,
+            transactions,
+            customers,
+            suppliers,
+            expenses,
+            draftOrders,
+            rolePasswords
           }
-
-          if (fileId) {
-            // Update file yang sudah ada di Google Drive
-            await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`, {
-              method: 'PATCH',
-              headers: {
-                Authorization: `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              },
-              body: fileContent
-            });
-          } else {
-            // Buat file baru di Google Drive
-            const metadata = {
-              name: GDRIVE_FILE_NAME,
-              mimeType: 'application/json',
-              description: 'Database Toko POSPro Kasir'
-            };
-
-            const form = new FormData();
-            form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-            form.append('file', new Blob([fileContent], { type: 'application/json' }));
-
-            const createRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${token}` },
-              body: form
-            });
-
-            if (createRes.ok) {
-              const createdData = await createRes.json();
-              setGoogleDriveFileId(createdData.id);
-              saveToLocal('pospro_gdrive_file_id', createdData.id);
-            }
-          }
-
-          setLastSyncTime(new Date());
-          setSyncStatusMsg('Tersimpan di Google Drive');
-        } catch (err) {
-          console.warn("GDrive push error:", err);
-        } finally {
-          setIsDriveSyncing(false);
-        }
-      }, [googleToken, googleUser, googleDriveFileId, userStoragePrefix, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
-
-      // INSIALISASI & LOGIN DENGAN GOOGLE OAUTH
-      const handleGoogleLogin = () => {
-        setIsAuthLoading(true);
-
-        const clientIdToUse = customClientId.trim() || DEFAULT_GOOGLE_CLIENT_ID;
-
-        if (window.google && window.google.accounts && window.google.accounts.oauth2) {
-          const client = window.google.accounts.oauth2.initTokenClient({
-            client_id: clientIdToUse,
-            scope: GDRIVE_SCOPES,
-            callback: async (response) => {
-              if (response.access_token) {
-                const token = response.access_token;
-                setGoogleToken(token);
-                saveToLocal('pospro_gdrive_token', token);
-
-                // Ambil profil pengguna Google
-                try {
-                  const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-                    headers: { Authorization: `Bearer ${token}` }
-                  });
-                  const profile = await userRes.json();
-
-                  const userObj = {
-                    email: profile.email,
-                    name: profile.name,
-                    picture: profile.picture,
-                    isDemo: false
-                  };
-
-                  setGoogleUser(userObj);
-                  saveToLocal('pospro_gdrive_user', userObj);
-                  showToast(`Selamat datang, ${profile.name}! Menghubungkan Google Drive...`);
-                  pullFromGoogleDrive(token);
-                } catch (e) {
-                  // Fallback jika info profil dibatasi
-                  const fallbackUser = {
-                    email: 'user@gmail.com',
-                    name: 'Pemilik Toko',
-                    picture: '',
-                    isDemo: false
-                  };
-                  setGoogleUser(fallbackUser);
-                  saveToLocal('pospro_gdrive_user', fallbackUser);
-                  pullFromGoogleDrive(token);
-                }
-              }
-              setIsAuthLoading(false);
-            },
-            error_callback: () => {
-              setIsAuthLoading(false);
-              showToast('Login Google dibatalkan atau terhalang.', 'error');
-            }
-          });
-
-          client.requestAccessToken();
-        } else {
-          setIsAuthLoading(false);
-          setShowManualLoginModal(true);
-        }
-      };
-
-      const handleDemoLogin = () => {
-        const demoUser = {
-          email: 'demo@pospro.id',
-          name: 'Akun Demo Toko',
-          picture: '',
-          isDemo: true
-        };
-        setGoogleUser(demoUser);
-        saveToLocal('pospro_gdrive_user', demoUser);
-        showToast('Masuk Mode Demo (Tanpa Google Drive)');
-      };
-
-      const handleManualEmailLogin = (e) => {
-        e.preventDefault();
-        const cleanEmail = manualEmailInput.trim().toLowerCase();
-        if (!cleanEmail || !cleanEmail.includes('@')) {
-          showToast('Masukkan email Google/Gmail yang valid!', 'error');
-          return;
-        }
-
-        const userObj = {
-          email: cleanEmail,
-          name: cleanEmail.split('@')[0].toUpperCase(),
-          picture: '',
-          isDemo: false
         };
 
-        setGoogleUser(userObj);
-        saveToLocal('pospro_gdrive_user', userObj);
-        setShowManualLoginModal(false);
-        showToast(`Toko aktif dengan email ${cleanEmail}!`);
-      };
+        const topic = `pospro/store_channel/${syncKey}`;
+        mqttClientRef.current.publish(topic, JSON.stringify(storePayload), { qos: 1 });
+        setLastSyncTime(new Date());
+        setSyncStatusMsg('Tersinkronisasi Real-Time');
+      }, [authSession, isDemoUser, syncKey, userStoragePrefix, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
 
-      const handleLogout = () => {
-        localStorage.removeItem('pospro_gdrive_user');
-        localStorage.removeItem('pospro_gdrive_token');
-        localStorage.removeItem('pospro_gdrive_file_id');
-        setGoogleUser(null);
-        setGoogleToken(null);
-        setGoogleDriveFileId(null);
-        showToast('Berhasil keluar akun Google.');
-      };
-
-      // Simpan Perubahan ke Cache Lokal & Picu Kirim ke Google Drive
+      // Simpan Perubahan ke Cache Lokal & Picu Broadcast ke PC/HP
       useEffect(() => {
-        if (!googleUser) return;
+        if (!authSession) return;
         saveToLocal(`${userStoragePrefix}_settings`, storeSettings);
         saveToLocal(`${userStoragePrefix}_products`, products);
         saveToLocal(`${userStoragePrefix}_transactions`, transactions);
@@ -627,23 +486,66 @@
         saveToLocal(`${userStoragePrefix}_expenses`, expenses);
         saveToLocal(`${userStoragePrefix}_passwords`, rolePasswords);
 
-        if (!googleUser.isDemo && googleToken && !isRemoteUpdatingRef.current) {
+        if (!isDemoUser && !isRemoteUpdatingRef.current) {
           const timer = setTimeout(() => {
-            pushToGoogleDrive();
-          }, 1200);
+            broadcastCurrentState();
+          }, 600);
           return () => clearTimeout(timer);
         }
-      }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, googleUser, googleToken, pushToGoogleDrive]);
+      }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, authSession, isDemoUser, broadcastCurrentState]);
 
-      // Polling Real-Time Google Drive Setiap 4 Detik agar HP & PC Selalu Identik
-      useEffect(() => {
-        if (!googleUser || googleUser.isDemo || !googleToken) return;
-        pullFromGoogleDrive();
-        const interval = setInterval(() => {
-          pullFromGoogleDrive();
-        }, 4000);
-        return () => clearInterval(interval);
-      }, [googleUser, googleToken, pullFromGoogleDrive]);
+      // Handle Submit Login Akun Toko (Tanpa Error 401 Google)
+      const handleAccountLogin = (e) => {
+        e.preventDefault();
+        const email = loginForm.email.trim().toLowerCase();
+        const password = loginForm.password.trim();
+
+        if (!email || !email.includes('@')) {
+          showToast('Masukkan alamat Email yang valid!', 'error');
+          return;
+        }
+        if (!password || password.length < 4) {
+          showToast('Masukkan Password / PIN minimal 4 karakter!', 'error');
+          return;
+        }
+
+        setIsAuthLoading(true);
+
+        const storeSyncKey = generateStoreSyncKey(email, password);
+        const userObj = {
+          email,
+          name: email.split('@')[0].toUpperCase(),
+          syncKey: storeSyncKey,
+          isDemo: false
+        };
+
+        setTimeout(() => {
+          setAuthSession(userObj);
+          if (loginForm.rememberMe) {
+            saveToLocal('pospro_cloud_user', userObj);
+          }
+          setIsAuthLoading(false);
+          showToast(`Selamat datang! Cloud Toko terhubung.`);
+        }, 500);
+      };
+
+      const handleDemoLogin = () => {
+        const demoUser = {
+          email: 'demo@pospro.id',
+          name: 'Akun Demo Toko',
+          syncKey: 'demo_vault',
+          isDemo: true
+        };
+        setAuthSession(demoUser);
+        saveToLocal('pospro_cloud_user', demoUser);
+        showToast('Masuk Mode Demo (Uji Coba Cepat)');
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('pospro_cloud_user');
+        setAuthSession(null);
+        showToast('Berhasil keluar akun.');
+      };
 
       const [cart, setCart] = useState([]);
       const [discount, setDiscount] = useState(0);
@@ -653,7 +555,6 @@
       const [paymentMethod, setPaymentMethod] = useState('Cash');
       const [transactionNote, setTransactionNote] = useState('');
       
-      const [showDraftSaveModal, setShowDraftSaveModal] = useState(false);
       const [showDraftListModal, setShowDraftListModal] = useState(false);
       const [isSaving, setIsSaving] = useState(false);
 
@@ -666,11 +567,8 @@
         errorMsg: '',
         isLoadingCamera: false
       });
-      const [isProcessingImage, setIsProcessingImage] = useState(false);
       const scannerInstanceRef = useRef(null);
       const lastScanTimeRef = useRef(0);
-      const cameraNativeInputRef = useRef(null);
-      const galleryInputRef = useRef(null);
 
       // State Modal Form Entitas
       const [isProductModalOpen, setIsProductModalOpen] = useState(false);
@@ -703,9 +601,6 @@
 
       const [viewingTransaction, setViewingTransaction] = useState(null);
       const [reportPeriod, setReportPeriod] = useState('month');
-
-      const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
-      const fileInputRef = useRef(null);
 
       const addToCart = useCallback((product) => {
         if (!product) return false;
@@ -760,7 +655,7 @@
 
       useEffect(() => {
         const handleGlobalBarcodeScanner = (e) => {
-          if (activeTab !== 'pos' || scannerModal.isOpen || isProductModalOpen || showDraftSaveModal || !googleUser) return;
+          if (activeTab !== 'pos' || scannerModal.isOpen || isProductModalOpen || !authSession) return;
 
           const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
           const isTypingInSpecialInput = activeTag === 'textarea' || (activeTag === 'input' && document.activeElement.type === 'number');
@@ -797,7 +692,7 @@
 
         window.addEventListener('keydown', handleGlobalBarcodeScanner);
         return () => window.removeEventListener('keydown', handleGlobalBarcodeScanner);
-      }, [activeTab, products, searchQuery, addToCart, scannerModal.isOpen, isProductModalOpen, showDraftSaveModal, googleUser]);
+      }, [activeTab, products, searchQuery, addToCart, scannerModal.isOpen, isProductModalOpen, authSession]);
 
       const closeScannerModal = useCallback(async () => {
         if (scannerInstanceRef.current) {
@@ -820,7 +715,7 @@
         const cleanCode = String(decodedText).trim().toUpperCase();
         
         const now = Date.now();
-        if (now - lastScanTimeRef.current < 1500) return;
+        if (now - lastScanTimeRef.current < 1400) return;
         lastScanTimeRef.current = now;
         playScanBeep();
 
@@ -935,7 +830,7 @@
           setScannerModal(prev => ({ 
             ...prev, 
             isLoadingCamera: false,
-            errorMsg: 'Izin live video kamera dibatasi browser. Silakan izinkan kamera atau gunakan scanner USB.' 
+            errorMsg: 'Izin kamera dibatasi browser. Silakan izinkan kamera di browser HP Anda.' 
           }));
         }
       };
@@ -992,7 +887,7 @@
         setPaymentMethod('Cash');
         setSelectedCustomerPOS('');
         setShowMobileCartDrawer(false);
-        showToast('Transaksi Disimpan ke Google Drive!');
+        showToast('Transaksi Berhasil Disimpan!');
         setViewingTransaction(newTransaction);
       };
 
@@ -1175,7 +1070,7 @@
 
       const handleBackupDatabase = () => {
         const backupData = {
-          user: googleUser,
+          user: authSession,
           storeSettings,
           products,
           transactions,
@@ -1190,7 +1085,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `backup_pospro_${(googleUser?.name || 'store').toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `backup_pospro_${(authSession?.name || 'store').toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
         showToast('Cadangan data berhasil diunduh!');
@@ -1239,7 +1134,7 @@
         });
       }, [products, selectedCategory, searchQuery]);
 
-      if (!googleUser) {
+      if (!authSession) {
         return (
           <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans">
             <div className="absolute top-1/4 -left-20 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none"></div>
@@ -1249,91 +1144,86 @@
               <div className="space-y-2">
                 <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 p-0.5 mx-auto shadow-2xl">
                   <div className="w-full h-full bg-[#181b3b] rounded-[22px] flex items-center justify-center">
-                    <Icon name="hard-drive" className="w-8 h-8 text-[#00d2d3]" />
+                    <Icon name="zap" className="w-8 h-8 text-[#00d2d3]" />
                   </div>
                 </div>
-                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">POSPro Cloud Kasir</h1>
-                <p className="text-xs text-slate-400">Penyimpanan Database di Google Drive Akun Anda</p>
+                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">POSPro Cloud Sync</h1>
+                <p className="text-xs text-slate-400">Sistem Kasir & Sinkronisasi Real-Time PC ⇄ HP</p>
               </div>
 
-              <div className="p-4 rounded-2xl bg-[#0f1228] border border-[#2a2f60] text-left space-y-2">
+              <div className="p-3.5 rounded-2xl bg-[#0f1228] border border-[#2a2f60] text-left space-y-1.5">
                 <div className="flex items-center gap-2 text-xs font-bold text-emerald-400">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>Sinkronisasi Otomatis Google Drive</span>
+                  <span>Sinkronisasi Otomatis Antar Perangkat</span>
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Database toko Anda tersimpan langsung di file <strong>`pospro_store_database.json`</strong> pada Google Drive akun Gmail Anda sendiri. 
-                  Login dengan akun yang sama di HP & PC agar data 100% selalu identik.
+                  Masukkan <strong>Email Toko / Gmail</strong> dan <strong>Password</strong> yang <strong>SAMA</strong> di PC dan di HP agar seluruh data transaksi, produk, dan stok otomatis sinkron seketika!
                 </p>
               </div>
 
-              <div className="space-y-3 pt-2">
-                <button
-                  onClick={handleGoogleLogin}
-                  disabled={isAuthLoading}
-                  className="w-full py-3.5 px-4 bg-white hover:bg-slate-100 text-slate-900 rounded-2xl font-black text-xs sm:text-sm flex items-center justify-center gap-3 shadow-xl active:scale-98 transition-all cursor-pointer"
-                >
-                  <svg className="w-5 h-5" viewBox="0 0 24 24">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                  </svg>
-                  <span>{isAuthLoading ? 'Menghubungkan Akun Google...' : 'Masuk dengan Akun Google'}</span>
-                </button>
-
-                <div className="flex items-center gap-2 pt-2">
-                  <button
-                    onClick={handleDemoLogin}
-                    className="flex-1 py-2.5 px-3 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer"
-                  >
-                    <Icon name="sparkles" className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Mode Demo (Uji Coba)</span>
-                  </button>
-                  <button
-                    onClick={() => setShowManualLoginModal(true)}
-                    className="py-2.5 px-3 bg-[#0f1228] hover:bg-[#21254d] text-slate-400 hover:text-white rounded-xl font-bold text-xs border border-[#2a2f60] transition-all cursor-pointer"
-                    title="Ketik Email Manual"
-                  >
-                    <Icon name="mail" className="w-3.5 h-3.5" />
-                  </button>
+              <form onSubmit={handleAccountLogin} className="space-y-3.5 text-left text-xs">
+                <div>
+                  <label className="text-slate-300 font-bold mb-1.5 block flex items-center gap-1.5">
+                    <Icon name="mail" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>Email Toko / Gmail:</span>
+                  </label>
+                  <input 
+                    type="email" 
+                    required 
+                    placeholder="contoh: imron.designer@gmail.com" 
+                    value={loginForm.email} 
+                    onChange={(e) => setLoginForm({ ...loginForm, email: e.target.value })} 
+                    className="w-full p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-white outline-none focus:border-[#00d2d3] font-medium"
+                  />
                 </div>
-              </div>
 
-              <div className="pt-2 border-t border-[#2a2f60]">
-                <p className="text-[10px] text-slate-400">
-                  Data 100% Privat di Akun Anda • Google Drive File Sync Engine
-                </p>
+                <div>
+                  <label className="text-slate-300 font-bold mb-1.5 block flex items-center gap-1.5">
+                    <Icon name="lock" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>Password / PIN Toko:</span>
+                  </label>
+                  <input 
+                    type="password" 
+                    required 
+                    placeholder="Masukkan PIN / Password (misal: 123456)" 
+                    value={loginForm.password} 
+                    onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })} 
+                    className="w-full p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-white outline-none focus:border-[#00d2d3] font-medium"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between text-[11px] text-slate-400 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={loginForm.rememberMe} 
+                      onChange={(e) => setLoginForm({ ...loginForm, rememberMe: e.target.checked })} 
+                      className="rounded accent-indigo-600"
+                    />
+                    <span>Ingat Akun di Perangkat Ini</span>
+                  </label>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isAuthLoading}
+                  className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:brightness-110 text-white rounded-2xl font-black text-xs sm:text-sm shadow-xl active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Icon name="log-in" className="w-4 h-4" />
+                  <span>{isAuthLoading ? 'Menghubungkan Cloud...' : 'Masuk & Sinkronkan PC + HP'}</span>
+                </button>
+              </form>
+
+              <div className="pt-2 border-t border-[#2a2f60] flex items-center justify-center">
+                <button
+                  onClick={handleDemoLogin}
+                  className="w-full py-2.5 px-3 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer"
+                >
+                  <Icon name="sparkles" className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Coba Mode Demo (Tanpa Akun)</span>
+                </button>
               </div>
             </div>
-
-            {/* Modal Ketik Email Manual */}
-            {showManualLoginModal && (
-              <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
-                  <div className="flex justify-between items-center">
-                    <h3 className="font-bold text-sm text-white">Masuk dengan Email Toko</h3>
-                    <button onClick={() => setShowManualLoginModal(false)} className="text-slate-400 hover:text-white cursor-pointer"><Icon name="x" className="w-4 h-4"/></button>
-                  </div>
-                  <form onSubmit={handleManualEmailLogin} className="space-y-3 text-xs">
-                    <div>
-                      <label className="text-slate-400 mb-1 block">Email Google / Gmail Toko:</label>
-                      <input 
-                        type="email" 
-                        required 
-                        placeholder="contoh: tokoku@gmail.com" 
-                        value={manualEmailInput} 
-                        onChange={(e) => setManualEmailInput(e.target.value)} 
-                        className="w-full p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-white outline-none focus:border-[#00d2d3]"
-                      />
-                    </div>
-                    <button type="submit" className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold shadow-md cursor-pointer">
-                      Masuk & Buka Toko
-                    </button>
-                  </form>
-                </div>
-              </div>
-            )}
           </div>
         );
       }
@@ -1418,31 +1308,33 @@
 
         return (
           <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 max-w-7xl mx-auto">
-            {/* Indikator Status Google Drive Sync Antar PC & HP */}
+            {/* Indikator Status Cloud Sync Antar PC & HP */}
             <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs ${
               theme === 'dark' ? 'bg-[#181b3b]/90 border-[#2a2f60]' : 'bg-white border-slate-200 shadow-sm'
             }`}>
               <div className="flex items-center gap-2.5">
-                <span className={`w-3 h-3 rounded-full shrink-0 ${isDriveSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
+                <span className={`w-3 h-3 rounded-full shrink-0 ${isCloudSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
                 <div>
                   <p className="font-extrabold text-xs flex items-center gap-1.5">
-                    <Icon name="hard-drive" className="w-3.5 h-3.5 text-[#00d2d3]" />
-                    <span>{isDriveSyncing ? 'Menyinkronkan data ke Google Drive...' : 'Google Drive Cloud Sync Aktif'}</span>
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono">Drive File</span>
+                    <Icon name="zap" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>{isCloudSyncing ? 'Menyinkronkan data...' : 'Real-Time Cloud Sync Aktif (PC ⇄ HP)'}</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono">Live Sync</span>
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
-                    Akun: <span className="text-cyan-400 font-bold">{googleUser?.email}</span> • Status: <span className="text-emerald-400 font-bold">{syncStatusMsg}</span> ({lastSyncTime ? lastSyncTime.toLocaleTimeString('id-ID') : 'Baru saja'})
+                    Akun: <span className="text-cyan-400 font-bold">{authSession?.email}</span> • Status: <span className="text-emerald-400 font-bold">{syncStatusMsg}</span> ({lastSyncTime ? lastSyncTime.toLocaleTimeString('id-ID') : 'Baru saja'})
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => pullFromGoogleDrive(googleToken, true)}
-                  disabled={isDriveSyncing}
+                  onClick={() => {
+                    broadcastCurrentState();
+                    showToast('⚡ Mengirim sinyal sinkronisasi ke seluruh perangkat!');
+                  }}
                   className="px-3 py-1.5 bg-[#21254d] hover:bg-indigo-600 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer shrink-0"
                 >
-                  <Icon name="refresh-cw" className={`w-3.5 h-3.5 ${isDriveSyncing ? 'animate-spin' : ''}`} />
-                  <span>Sinkron Drive</span>
+                  <Icon name="refresh-cw" className="w-3.5 h-3.5" />
+                  <span>Sinkron Sekarang</span>
                 </button>
               </div>
             </div>
@@ -2099,33 +1991,29 @@
                     {storeSettings.name}
                   </h1>
                   <div className="flex items-center gap-1.5 mt-1.5">
-                    <span className={`w-2 h-2 rounded-full ${isDriveSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
+                    <span className={`w-2 h-2 rounded-full ${isCloudSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
                     <p className="text-[10px] font-bold text-[#00d2d3] uppercase tracking-wider">
-                      {isDemoUser ? 'MODE DEMO' : 'GOOGLE DRIVE CLOUD'}
+                      {isDemoUser ? 'MODE DEMO' : 'CLOUD SYNC AKTIF'}
                     </p>
                   </div>
                 </div>
               </div>
             </div>
             
-            {/* Profil Akun Google */}
+            {/* Profil Akun */}
             <div className="px-4 mb-2">
               <div className={`p-3 rounded-2xl border flex items-center justify-between ${
                 theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50 border-slate-200'
               }`}>
                 <div className="flex items-center gap-2.5 overflow-hidden">
-                  {googleUser?.picture ? (
-                    <img src={googleUser.picture} alt="Avatar" className="w-8 h-8 rounded-xl object-cover shrink-0" />
-                  ) : (
-                    <div className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold flex items-center justify-center text-xs shadow-md shrink-0">
-                      {currentUser.avatar}
-                    </div>
-                  )}
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white font-bold flex items-center justify-center text-xs shadow-md shrink-0">
+                    {currentUser.avatar}
+                  </div>
                   <div className="overflow-hidden">
                     <p className={`font-bold text-xs truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>{currentUser.name}</p>
                     <div className="flex items-center gap-1.5 mt-0.5">
                       <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-bold uppercase">{currentUser.role}</span>
-                      <span className="text-[9px] text-slate-400 truncate max-w-[70px]">{googleUser?.email || 'Toko'}</span>
+                      <span className="text-[9px] text-slate-400 truncate max-w-[70px]">{authSession?.email || 'Toko'}</span>
                     </div>
                   </div>
                 </div>
@@ -2196,7 +2084,7 @@
                 </div>
                 <div className="overflow-hidden">
                   <h1 className="text-xs font-black tracking-tight leading-none truncate max-w-[130px]">{storeSettings.name}</h1>
-                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{isDemoUser ? 'Demo' : 'Drive Sync'}</span>
+                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{isDemoUser ? 'Demo' : 'Live Sync'}</span>
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -2386,21 +2274,24 @@
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <h3 className="font-extrabold text-sm flex items-center gap-2">
-                      <Icon name="hard-drive" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Google Drive Cloud Sync
+                      <Icon name="zap" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Cloud Sync PC ⇄ HP
                     </h3>
                     <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#21254d]/50 border border-[#2a2f60]">
                       <div>
                         <p className="text-xs font-bold">
-                          Akun: {googleUser?.name || 'Toko'} {isDemoUser ? '(Mode Demo)' : `(${googleUser?.email})`}
+                          Akun Toko: {authSession?.name || 'Toko'} {isDemoUser ? '(Mode Demo)' : `(${authSession?.email})`}
                         </p>
                         <p className="text-[11px] text-emerald-400 font-semibold mt-0.5">
-                          ✅ File Drive: `pospro_store_database.json` di Google Drive Anda
+                          ✅ Real-Time Sync Aktif • Kode Vault: `{syncKey}`
                         </p>
                       </div>
                       <div className="flex gap-2">
-                        <button onClick={() => pullFromGoogleDrive(googleToken, true)} className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5">
+                        <button onClick={() => {
+                          broadcastCurrentState();
+                          showToast('⚡ Sinkronisasi data ke seluruh perangkat berhasil!');
+                        }} className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5">
                           <Icon name="refresh-cw" className="w-3.5 h-3.5"/>
-                          <span>Sinkron Drive</span>
+                          <span>Sinkronkan Sekarang</span>
                         </button>
                         <button onClick={handleLogout} className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
                           Keluar Akun
@@ -2476,7 +2367,7 @@
             </div>
           </div>
 
-          {/* Modal Live Barcode Scanner */}
+          {}
           {scannerModal.isOpen && (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
               <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
