@@ -3270,6 +3270,7 @@
             </div>
           </div>
 
+          {}
           {showExtendLicenseModal && (
             <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
               <div className={`rounded-3xl w-full max-w-md p-6 space-y-4 border shadow-2xl ${
@@ -3724,6 +3725,126 @@
               </div>
             </div>
           )}
+
+          {}
+          {/* Modal Tambah/Edit Pelanggan */}
+          {isCustomerModalOpen && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'
+              }`}>
+                <div className={`p-4 border-b flex justify-between items-center ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>
+                  <h3 className="font-black text-sm">{editingCustomer ? 'Edit Pelanggan' : 'Tambah Pelanggan Baru'}</h3>
+                  <button onClick={() => setIsCustomerModalOpen(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button>
+                </div>
+                <form onSubmit={handleSaveCustomer} className="p-4 space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">Nama Pelanggan *</label>
+                    <input type="text" required placeholder="Contoh: Budi Santoso" value={customerForm.name} onChange={(e) => setCustomerForm({...customerForm, name: e.target.value})} className={`w-full p-2.5 border rounded-xl font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">No. WhatsApp / HP</label>
+                    <input type="tel" placeholder="Contoh: 08123456789" value={customerForm.phone} onChange={(e) => setCustomerForm({...customerForm, phone: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">Alamat Lengkap</label>
+                    <textarea rows="3" placeholder="Alamat rumah / pengiriman..." value={customerForm.address} onChange={(e) => setCustomerForm({...customerForm, address: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none resize-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`}></textarea>
+                  </div>
+                  <button type="submit" className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">
+                    Simpan Pelanggan
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Tambah/Edit Supplier */}
+          {isSupplierModalOpen && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'
+              }`}>
+                <div className={`p-4 border-b flex justify-between items-center ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>
+                  <h3 className="font-black text-sm">{editingSupplier ? 'Edit Supplier' : 'Tambah Supplier Baru'}</h3>
+                  <button onClick={() => setIsSupplierModalOpen(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button>
+                </div>
+                <form onSubmit={handleSaveSupplier} className="p-4 space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">Nama Perusahaan / Toko *</label>
+                    <input type="text" required placeholder="Contoh: PT. Sumber Makmur" value={supplierForm.name} onChange={(e) => setSupplierForm({...supplierForm, name: e.target.value})} className={`w-full p-2.5 border rounded-xl font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">Nama Kontak (PIC)</label>
+                    <input type="text" placeholder="Contoh: Bpk. Agus" value={supplierForm.contactPerson} onChange={(e) => setSupplierForm({...supplierForm, contactPerson: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">No. Telepon / WA</label>
+                    <input type="tel" placeholder="Contoh: 08123456789" value={supplierForm.phone} onChange={(e) => setSupplierForm({...supplierForm, phone: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">Alamat</label>
+                    <textarea rows="2" placeholder="Alamat gudang / kantor..." value={supplierForm.address} onChange={(e) => setSupplierForm({...supplierForm, address: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none resize-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`}></textarea>
+                  </div>
+                  <button type="submit" className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">
+                    Simpan Supplier
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Bayar Piutang Pelanggan */}
+          {paymentModalCustomer && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-5 space-y-3 border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'
+              }`}>
+                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Pelunasan Piutang</h3><button onClick={() => setPaymentModalCustomer(null)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                  <p className="text-[10px] text-slate-400">Pelanggan</p>
+                  <p className="font-bold text-xs">{paymentModalCustomer.name}</p>
+                  <div className="flex justify-between items-end mt-2 pt-2 border-t border-slate-700/30">
+                    <span className="text-[10px] text-slate-400">Total Tagihan Piutang:</span>
+                    <span className="font-black text-sm text-[#ff8a3d]">{formatMoney(paymentModalCustomer.debt)}</span>
+                  </div>
+                </div>
+                <form onSubmit={handlePayCustomerDebt} className="space-y-3 pt-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Nominal Pembayaran (Rp)</label>
+                    <input type="number" required autoFocus min="1" max={paymentModalCustomer.debt} value={customerPayAmount} onChange={(e) => setCustomerPayAmount(e.target.value)} className={`w-full p-3 border rounded-xl text-center text-lg font-black outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-emerald-400' : 'bg-slate-50 text-emerald-600'}`} />
+                  </div>
+                  <button type="submit" className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl text-xs shadow-md cursor-pointer flex items-center justify-center gap-1.5"><Icon name="check-circle" className="w-4 h-4"/> Konfirmasi Pembayaran</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Bayar Hutang Supplier */}
+          {paymentModalSupplier && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm p-5 space-y-3 border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'
+              }`}>
+                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Pelunasan Hutang Toko</h3><button onClick={() => setPaymentModalSupplier(null)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                  <p className="text-[10px] text-slate-400">Ke Supplier</p>
+                  <p className="font-bold text-xs">{paymentModalSupplier.name}</p>
+                  <div className="flex justify-between items-end mt-2 pt-2 border-t border-slate-700/30">
+                    <span className="text-[10px] text-slate-400">Sisa Hutang Toko:</span>
+                    <span className="font-black text-sm text-[#ff8a3d]">{formatMoney(paymentModalSupplier.debt)}</span>
+                  </div>
+                </div>
+                <form onSubmit={handlePaySupplierDebt} className="space-y-3 pt-2">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Nominal Dibayarkan (Rp)</label>
+                    <input type="number" required autoFocus min="1" max={paymentModalSupplier.debt} value={supplierPayAmount} onChange={(e) => setSupplierPayAmount(e.target.value)} className={`w-full p-3 border rounded-xl text-center text-lg font-black outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-emerald-400' : 'bg-slate-50 text-emerald-600'}`} />
+                  </div>
+                  <button type="submit" className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-2xl text-xs shadow-md cursor-pointer flex items-center justify-center gap-1.5"><Icon name="check-circle" className="w-4 h-4"/> Konfirmasi Pembayaran</button>
+                </form>
+              </div>
+            </div>
+          )}
+
         </div>
       );
     }
