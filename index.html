@@ -2902,6 +2902,63 @@
                       </button>
                     </form>
                   </div>
+
+                  {}
+                  {/* Pengaturan Keamanan & Password Role (Khusus Owner) */}
+                  <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
+                    theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-extrabold text-sm flex items-center gap-2">
+                        <Icon name="key" className="w-4 h-4 text-[#00d2d3]"/> Keamanan & Password Role (Owner Only)
+                      </h3>
+                      <span className="px-2.5 py-0.5 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-full text-[10px] font-bold">
+                        👑 Akses Khusus Owner
+                      </span>
+                    </div>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Ubah kata sandi untuk beralih ke peran Owner dan Admin Toko agar hak akses data sensitif tetap terlindungi.
+                    </p>
+                    <form onSubmit={(e) => {
+                      e.preventDefault();
+                      saveToLocal(`${userStoragePrefix}_passwords`, rolePasswords);
+                      showToast('Kata sandi Owner & Admin berhasil diperbarui!');
+                    }} className="space-y-3 pt-2 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="font-bold text-slate-400 mb-1 block flex items-center gap-1.5">
+                            <Icon name="shield-check" className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Password Role Owner</span>
+                          </label>
+                          <input 
+                            type="text" 
+                            required 
+                            value={rolePasswords.owner || ''} 
+                            onChange={(e) => setRolePasswords({ ...rolePasswords, owner: e.target.value })} 
+                            className={`w-full px-3 py-2.5 rounded-xl font-bold border outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} 
+                            placeholder="Password Owner..."
+                          />
+                        </div>
+                        <div>
+                          <label className="font-bold text-slate-400 mb-1 block flex items-center gap-1.5">
+                            <Icon name="user-check" className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>Password Role Admin</span>
+                          </label>
+                          <input 
+                            type="text" 
+                            required 
+                            value={rolePasswords.admin || ''} 
+                            onChange={(e) => setRolePasswords({ ...rolePasswords, admin: e.target.value })} 
+                            className={`w-full px-3 py-2.5 rounded-xl font-bold border outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} 
+                            placeholder="Password Admin..."
+                          />
+                        </div>
+                      </div>
+                      <button type="submit" className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black shadow-md cursor-pointer hover:brightness-110">
+                        Simpan Perubahan Password Role
+                      </button>
+                    </form>
+                  </div>
                 </div>
               )}
             </div>
@@ -3306,6 +3363,71 @@
                     <button type="button" onClick={() => addRowDynamicList(restockForm, setRestockForm)} className="text-[11px] font-bold text-[#00d2d3] cursor-pointer">+ Tambah Baris</button>
                   </div>
                   <button type="submit" className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">Simpan Stok Masuk</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {}
+          {/* Modal Stok Keluar / Rusak */}
+          {showStockOutModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+              }`}>
+                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center bg-rose-500/20 text-rose-400">
+                  <h3 className="font-black text-sm flex items-center gap-1.5">
+                    <Icon name="minus" className="w-4 h-4"/> Stok Keluar / Rusak
+                  </h3>
+                  <button onClick={() => setShowStockOutModal(false)} className="cursor-pointer">
+                    <Icon name="x" className="w-5 h-5 text-slate-400"/>
+                  </button>
+                </div>
+                <form onSubmit={handleSaveStockOut} className="p-4 overflow-y-auto space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">Alasan Pengurangan Stok *</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="Contoh: Barang kadaluarsa / rusak / konsumsi toko" 
+                      value={stockOutForm.reason} 
+                      onChange={(e) => setStockOutForm({...stockOutForm, reason: e.target.value})} 
+                      className={`w-full px-3 py-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="font-bold text-slate-400 block">Daftar Barang Keluar:</label>
+                    {stockOutForm.items.map((it, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <select 
+                          required 
+                          value={it.productId} 
+                          onChange={(e) => updateDynamicList(stockOutForm, setStockOutForm, idx, 'productId', e.target.value)} 
+                          className={`flex-1 p-2.5 border rounded-xl text-xs outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`}
+                        >
+                          <option value="">-- Pilih Barang --</option>
+                          {products.map(p => (
+                            <option key={p.id} value={p.id}>{p.name} (Sisa Stok: {p.stock})</option>
+                          ))}
+                        </select>
+                        <input 
+                          type="number" 
+                          required 
+                          min="1" 
+                          placeholder="Qty" 
+                          value={it.qty} 
+                          onChange={(e) => updateDynamicList(stockOutForm, setStockOutForm, idx, 'qty', e.target.value)} 
+                          className={`w-16 p-2.5 border rounded-xl text-center text-xs font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} 
+                        />
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => addRowDynamicList(stockOutForm, setStockOutForm)} className="text-[11px] font-bold text-[#00d2d3] cursor-pointer">
+                      + Tambah Baris
+                    </button>
+                  </div>
+                  <button type="submit" className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">
+                    Simpan Stok Keluar
+                  </button>
                 </form>
               </div>
             </div>
