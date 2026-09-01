@@ -323,7 +323,32 @@
 
     function App() {
       // 1. STATE LISENSI APLIKASI
-      const [licenseData, setLicenseData] = useState(() => loadFromLocal('pospro_active_license', null));
+      const [licenseData, setLicenseData] = useState(() => {
+        const saved = loadFromLocal('pospro_active_license', null);
+        if (saved) return saved;
+        
+        // Deteksi apakah dijalankan di Preview Editor, Localhost, atau File Lokal
+        const hostname = window.location.hostname;
+        const isPreview = hostname.includes('googleusercontent.com') || hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '';
+        
+        // Auto-Bypass ke dashboard jika di dalam editor / environment pengembangan
+        if (isPreview) {
+          return {
+            key: 'POS-PREVIEW-AUTO',
+            ownerName: 'Toko Preview Editor',
+            activatedAt: new Date().toISOString(),
+            expiresAt: null,
+            durationDays: 99999,
+            durationLabel: 'Aktif Selamanya (Mode Preview)',
+            serial: 'PREV',
+            vaultId: 'vault_preview_001',
+            isLifetime: true,
+            isDemo: false // Set false agar semua fitur penuh (termasuk backup) terbuka
+          };
+        }
+        
+        return null;
+      });
       const [licenseInputKey, setLicenseInputKey] = useState('');
       const [licenseOwnerName, setLicenseOwnerName] = useState('');
       const [licenseError, setLicenseError] = useState('');
