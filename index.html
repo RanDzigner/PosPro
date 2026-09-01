@@ -1375,9 +1375,9 @@
         } else {
           if (products.some(p => p.sku === finalSku)) { showToast('⚠️ Barang sudah ada!', 'error'); setIsSaving(false); return; }
           const newProduct = { ...formattedData, id: generateId() };
-          updatedProducts = [...products, newProduct];
+          updatedProducts = [newProduct, ...products];
           setProducts(updatedProducts);
-          showToast('Produk ditambahkan');
+          showToast(`✅ Produk "${newProduct.name}" berhasil ditambahkan & siap dijual!`);
         }
         setIsProductModalOpen(false);
         setIsSaving(false);
@@ -2274,19 +2274,49 @@
                     <button 
                       onClick={() => openScanner('pos')} 
                       className="px-3.5 py-2.5 bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white rounded-2xl font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all shrink-0 cursor-pointer"
+                      title="Scan Barcode untuk Masuk Keranjang"
                     >
                       <Icon name="camera" className="w-4 h-4" />
-                      <span>Scan Kamera</span>
+                      <span>Scan</span>
                     </button>
                   ) : (
-                    <div className={`hidden lg:flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl text-xs font-bold border shrink-0 ${
+                    <div className={`hidden lg:flex items-center gap-1.5 px-3 py-2.5 rounded-2xl text-xs font-bold border shrink-0 ${
                       theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-600'
                     }`}>
                       <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
                       <Icon name="barcode" className="w-4 h-4 text-[#00d2d3]" />
-                      <span>Scanner USB/BT Siap</span>
+                      <span>Scanner Siap</span>
                     </div>
                   )}
+
+                  {}
+                  {/* Tombol Scan Produk Baru Langsung di POS */}
+                  <button 
+                    onClick={() => openScanner('scan_new_product')} 
+                    className="p-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white rounded-2xl font-black text-xs flex items-center gap-1 shadow-md active:scale-95 transition-all shrink-0 cursor-pointer"
+                    title="Pindai Barcode Kemasan untuk Tambah Produk Baru"
+                  >
+                    <Icon name="scan" className="w-4 h-4" />
+                    <span className="hidden sm:inline">+ Scan Baru</span>
+                  </button>
+
+                  {/* Tombol Tambah Produk Manual Langsung di POS */}
+                  <button 
+                    onClick={() => {
+                      setEditingProduct(null);
+                      setProductForm({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '10', category: 'Umum', supplier: '' });
+                      setIsProductModalOpen(true);
+                    }} 
+                    className={`px-3 py-2.5 rounded-2xl font-bold text-xs flex items-center gap-1.5 border shrink-0 cursor-pointer transition-all ${
+                      theme === 'dark' 
+                        ? 'bg-[#21254d] border-[#2a2f60] text-emerald-400 hover:bg-[#2a2f60]' 
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                    }`}
+                    title="Tambah Produk Baru Manual di Kasir"
+                  >
+                    <Icon name="plus-circle" className="w-4 h-4 text-emerald-400" />
+                    <span className="hidden md:inline">+ Barang</span>
+                  </button>
 
                   <button 
                     onClick={() => setShowDraftSaveModal(true)} 
@@ -3283,7 +3313,7 @@
                   }`}>
                     <p className="font-black text-sm">{scannerModal.feedback.title}</p>
                     <p>{scannerModal.feedback.desc}</p>
-                    {scannerModal.feedback.action === 'create_product' && currentUser.role !== 'kasir' && (
+                    {scannerModal.feedback.action === 'create_product' && (
                       <button 
                         onClick={() => {
                           const scannedSku = scannerModal.feedback.code;
