@@ -1286,6 +1286,10 @@
       };
 
       const handleBackupDatabase = () => {
+        if (isDemoUser) {
+          showToast('Fitur unduh cadangan JSON dinonaktifkan pada Mode Demo!', 'error');
+          return;
+        }
         const backupData = {
           user: authSession,
           storeSettings,
@@ -1309,6 +1313,10 @@
       };
 
       const handleRestoreDatabase = (e) => {
+        if (isDemoUser) {
+          showToast('Fitur pemulihan data dinonaktifkan pada Mode Demo!', 'error');
+          return;
+        }
         const file = e.target.files && e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
@@ -2557,30 +2565,53 @@
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
-                    <h3 className="font-extrabold text-sm flex items-center gap-2">
-                      <Icon name="zap" className="w-4 h-4 text-[#00d2d3]"/> Status Akun & Cloud Sync PC ⇄ HP
-                    </h3>
-                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#21254d]/50 border border-[#2a2f60]">
-                      <div>
-                        <p className="text-xs font-bold">
-                          Akun Toko: {authSession?.name || 'Toko'} {isDemoUser ? '(Mode Demo)' : `(${authSession?.email})`}
-                        </p>
-                        <p className="text-[11px] text-emerald-400 font-semibold mt-0.5">
-                          ✅ Real-Time Sync Aktif • Kode Vault: `{syncKey}`
-                        </p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => {
-                          broadcastCurrentState();
-                          showToast('⚡ Sinkronisasi data ke seluruh perangkat berhasil!');
-                        }} className="px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer flex items-center gap-1.5">
-                          <Icon name="refresh-cw" className="w-3.5 h-3.5"/>
-                          <span>Sinkronkan Sekarang</span>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-extrabold text-sm flex items-center gap-2">
+                        <Icon name="download" className="w-4 h-4 text-[#00d2d3]"/> Cadangan File Lokal (.JSON)
+                      </h3>
+                      {isDemoUser && (
+                        <span className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded-full font-bold">
+                          Terkunci di Mode Demo
+                        </span>
+                      )}
+                    </div>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {isDemoUser 
+                        ? 'Fitur unduh dan simpan file cadangan lokal dinonaktifkan pada Mode Demo. Silakan login akun toko Anda untuk mengamankan data.' 
+                        : 'Unduh seluruh data toko ke file cadangan atau pulihkan data kapan saja.'}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+                      <button 
+                        onClick={handleBackupDatabase} 
+                        disabled={isDemoUser}
+                        className={`py-2.5 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md transition-all ${
+                          isDemoUser 
+                            ? 'bg-slate-800/80 text-slate-400 border border-slate-700 cursor-not-allowed opacity-60' 
+                            : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white cursor-pointer hover:brightness-110'
+                        }`}
+                      >
+                        <Icon name={isDemoUser ? "lock" : "download"} className="w-4 h-4"/> 
+                        <span>{isDemoUser ? 'Download Terkunci (Mode Demo)' : 'Download Backup (.json)'}</span>
+                      </button>
+                      {isDemoUser ? (
+                        <button 
+                          onClick={() => showToast('Fitur pulihkan cadangan dinonaktifkan di Mode Demo!', 'error')} 
+                          className={`py-2.5 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border cursor-not-allowed opacity-60 ${
+                            theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          <Icon name="lock" className="w-4 h-4 text-slate-400"/> 
+                          <span>Pulihkan Data Terkunci</span>
                         </button>
-                        <button onClick={handleLogout} className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer">
-                          Keluar Akun
-                        </button>
-                      </div>
+                      ) : (
+                        <label className={`py-2.5 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer text-center border ${
+                          theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-[#282d5e]' : 'bg-slate-100 border-slate-200 hover:bg-slate-200'
+                        }`}>
+                          <Icon name="upload" className="w-4 h-4 text-[#00d2d3]"/> 
+                          <span>Pulihkan Data</span>
+                          <input ref={fileInputRef} type="file" accept=".json" onChange={handleRestoreDatabase} className="hidden" />
+                        </label>
+                      )}
                     </div>
                   </div>
 
