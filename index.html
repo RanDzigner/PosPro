@@ -113,7 +113,7 @@
     // ⚙️ KONFIGURASI BACKEND GOOGLE APPS SCRIPT (GOOGLE SHEETS LISENSI)
     // =========================================================================
     // Tempelkan URL Web App Google Apps Script Anda (yang berakhiran /exec) di bawah ini:
-    const GOOGLE_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxuFSxfNHcc3t4pc2a_vKH-dEwGjTUfrgmv6o5hESpPBySkSf0Ju8FWNHrz-edH9gc/exec";
+    const GOOGLE_SCRIPT_WEBAPP_URL = "PASTE_YOUR_APPS_SCRIPT_URL_HERE";
     
     // Kunci token pengaman komunikasi antara Web Vercel & Google Script Anda
     const APP_SECRET_TOKEN = "POSPRO_SECURITY_KEY_2026_X9";
@@ -994,7 +994,7 @@
 
       useEffect(() => {
         const handleGlobalBarcodeScanner = (e) => {
-          if (activeTab !== 'pos' || scannerModal.isOpen || isProductModalOpen || !licenseData) return;
+          if (scannerModal.isOpen || isProductModalOpen || !licenseData) return;
 
           const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
           const isTypingInSpecialInput = activeTag === 'textarea' || (activeTag === 'input' && document.activeElement.type === 'number');
@@ -1012,17 +1012,35 @@
               const cleanCode = rawCode.toUpperCase();
               const matchedProduct = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
               
-              if (matchedProduct) {
-                playScanBeep();
-                const added = addToCart(matchedProduct);
-                if (added) showToast(`+1 ${matchedProduct.name} masuk keranjang!`);
-                setSearchQuery('');
+              if (activeTab === 'pos') {
+                if (matchedProduct) {
+                  playScanBeep();
+                  const added = addToCart(matchedProduct);
+                  if (added) showToast(`+1 ${matchedProduct.name} masuk keranjang!`);
+                  setSearchQuery('');
+                  barcodeBufferRef.current = '';
+                  e.preventDefault();
+                } else if (rawCode === barcodeBufferRef.current.trim()) {
+                  showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
+                  barcodeBufferRef.current = '';
+                  setSearchQuery('');
+                }
+              } else if (activeTab === 'inventory') {
+                if (matchedProduct) {
+                  playScanBeep();
+                  setEditingProduct(matchedProduct);
+                  setProductForm(matchedProduct);
+                  setIsProductModalOpen(true);
+                  showToast(`Membuka produk: ${matchedProduct.name}`);
+                } else {
+                  playScanBeep();
+                  setEditingProduct(null);
+                  setProductForm({ sku: cleanCode, name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' });
+                  setIsProductModalOpen(true);
+                  showToast(`Barcode ${cleanCode} belum ada. Silakan lengkapi data produk!`);
+                }
                 barcodeBufferRef.current = '';
                 e.preventDefault();
-              } else if (rawCode === barcodeBufferRef.current.trim()) {
-                showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
-                barcodeBufferRef.current = '';
-                setSearchQuery('');
               }
             }
           } else if (e.key && e.key.length === 1) {
@@ -1060,7 +1078,22 @@
         lastScanTimeRef.current = now;
         playScanBeep();
 
-        if (scannerModal.target === 'product_form') {
+        if (scannerModal.target === 'scan_new_product') {
+          const existing = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
+          if (existing) {
+            setEditingProduct(existing);
+            setProductForm(existing);
+            setIsProductModalOpen(true);
+            closeScannerModal();
+            showToast(`Barang sudah terdaftar: "${existing.name}" (Mode Edit)`);
+          } else {
+            setEditingProduct(null);
+            setProductForm({ sku: cleanCode, name: '', costPrice: '', price: '', packPrice: '', stock: '1', category: 'Umum', supplier: '' });
+            setIsProductModalOpen(true);
+            closeScannerModal();
+            showToast(`✅ Barcode ${cleanCode} siap, silakan isi nama & harga produk!`);
+          }
+        } else if (scannerModal.target === 'product_form') {
           const existing = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (existing && !editingProduct) {
             setScannerModal(prev => ({
@@ -1587,11 +1620,11 @@
                 <div className="w-14 h-14 bg-gradient-to-tr from-indigo-600 via-purple-600 to-[#00d2d3] rounded-2xl flex items-center justify-center mx-auto text-white shadow-lg mb-2">
                   <Icon name="shield-check" className="w-7 h-7 text-white" />
                 </div>
-                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">Aktivasi Lisensi POSPro</h1>
+                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">Masuk / Aktivasi Lisensi POSPro</h1>
                 <p className="text-xs text-slate-400">
                   {licenseStatus.isExpired 
                     ? 'Masa aktif lisensi aplikasi Anda telah berakhir. Masukkan lisensi baru untuk memperpanjang.' 
-                    : 'Sistem Kasir & Sinkronisasi Real-Time PC ⇄ HP. Masukkan Lisensi Key untuk mengaktifkan.'}
+                    : 'Masukkan Nama Toko dan Kode Lisensi untuk aktivasi baru atau login kembali ke akun toko Anda.'}
                 </p>
               </div>
 
@@ -1605,19 +1638,19 @@
               <form onSubmit={handleActivateLicense} className="space-y-3.5 text-left text-xs">
                 <div>
                   <label className="text-slate-300 font-bold mb-1.5 block flex items-center gap-1.5">
-                    <Icon name="user" className="w-3.5 h-3.5 text-[#00d2d3]" />
-                    <span>Nama Toko / Pemilik (Terkunci ke Lisensi):</span>
+                    <Icon name="store" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>Nama Toko / Pemilik:</span>
                   </label>
                   <input 
                     type="text" 
                     required 
-                    placeholder="Contoh: Toko Berkah Abadi" 
+                    placeholder="Contoh: Toko Kamera" 
                     value={licenseOwnerName} 
                     onChange={(e) => setLicenseOwnerName(e.target.value)} 
                     className="w-full p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-white outline-none focus:border-[#00d2d3] font-medium"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
-                    *Harus sama persis dengan nama toko saat lisensi dibuat.
+                    *Harus sama persis dengan nama toko yang didaftarkan.
                   </p>
                 </div>
 
@@ -1629,13 +1662,13 @@
                   <input 
                     type="text" 
                     required 
-                    placeholder="POS-30D-XXXXX-YYYY" 
+                    placeholder="POS-1D-XXXXX-YYYY" 
                     value={licenseInputKey} 
                     onChange={(e) => setLicenseInputKey(e.target.value.toUpperCase())} 
                     className="w-full p-3.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-[#00d2d3] outline-none focus:border-[#00d2d3] font-mono font-bold text-center tracking-wider text-sm sm:text-base"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Kode lisensi ini terkunci khusus untuk nama toko di atas.
+                    Gunakan kode lisensi aktif toko Anda untuk login kembali.
                   </p>
                 </div>
 
@@ -1647,12 +1680,12 @@
                   {isVerifyingLicense ? (
                     <>
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      <span>Memverifikasi ke Google Sheets...</span>
+                      <span>Memverifikasi Akun ke Server...</span>
                     </>
                   ) : (
                     <>
-                      <Icon name="check-circle" className="w-4 h-4" />
-                      <span>Aktivasi Lisensi & Buka Kasir</span>
+                      <Icon name="log-in" className="w-4 h-4" />
+                      <span>Masuk / Aktivasi Akun Kasir</span>
                     </>
                   )}
                 </button>
@@ -2710,17 +2743,27 @@
                       <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Kelola stok dan tambah stok cepat dengan scan barcode.</p>
                     </div>
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                      {currentUser.role !== 'kasir' && (
+                        <button 
+                          onClick={() => openScanner('scan_new_product')} 
+                          className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white px-3.5 py-2.5 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                          title="Pindai barcode kemasan untuk mendaftarkan barang baru"
+                        >
+                          <Icon name="scan" className="w-4 h-4" />
+                          <span>+ Scan Produk Baru</span>
+                        </button>
+                      )}
                       <button 
                         onClick={() => openScanner('inventory_restock')} 
-                        className="flex-1 sm:flex-none bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white px-4 py-2.5 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                        className="flex-1 sm:flex-none bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white px-3.5 py-2.5 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
                       >
                         <Icon name="camera" className="w-4 h-4" />
-                        <span>Scan Tambah Stok (+1)</span>
+                        <span>Scan Stok (+1)</span>
                       </button>
                       <button onClick={() => setShowRestockModal(true)} className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"><Icon name="plus" className="w-4 h-4" /> Masuk Form</button>
                       <button onClick={() => setShowStockOutModal(true)} className="flex-1 sm:flex-none bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"><Icon name="minus" className="w-4 h-4" /> Keluar</button>
                       {currentUser.role !== 'kasir' && (
-                        <button onClick={() => { setEditingProduct(null); setProductForm({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' }); setIsProductModalOpen(true); }} className={`flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1 border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-white hover:bg-[#282d5e]' : 'bg-slate-800 text-white'}`}><Icon name="plus" className="w-4 h-4" /> + Produk Baru</button>
+                        <button onClick={() => { setEditingProduct(null); setProductForm({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' }); setIsProductModalOpen(true); }} className={`flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1 border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-white hover:bg-[#282d5e]' : 'bg-slate-800 text-white'}`}><Icon name="plus" className="w-4 h-4" /> + Manual</button>
                       )}
                     </div>
                   </div>
@@ -3240,6 +3283,21 @@
                   }`}>
                     <p className="font-black text-sm">{scannerModal.feedback.title}</p>
                     <p>{scannerModal.feedback.desc}</p>
+                    {scannerModal.feedback.action === 'create_product' && currentUser.role !== 'kasir' && (
+                      <button 
+                        onClick={() => {
+                          const scannedSku = scannerModal.feedback.code;
+                          closeScannerModal();
+                          setEditingProduct(null);
+                          setProductForm({ sku: scannedSku, name: '', costPrice: '', price: '', packPrice: '', stock: '1', category: 'Umum', supplier: '' });
+                          setIsProductModalOpen(true);
+                        }} 
+                        className="mt-2 py-2 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md cursor-pointer"
+                      >
+                        <Icon name="plus-circle" className="w-3.5 h-3.5" />
+                        <span>Daftarkan Produk Baru Dengan Barcode Ini</span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -3506,9 +3564,7 @@
                     <label className="font-bold text-slate-400 mb-1 block">Kode Barcode / SKU</label>
                     <div className="flex gap-2">
                       <input type="text" placeholder="Scan barcode / ketik SKU" value={productForm.sku} onChange={(e) => setProductForm({...productForm, sku: e.target.value})} className={`flex-1 px-3 py-2.5 border rounded-xl font-mono uppercase outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
-                      {isMobileDevice && (
-                        <button type="button" onClick={() => openScanner('product_form')} className="px-3.5 py-2 bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white font-bold rounded-xl flex items-center gap-1 shrink-0 cursor-pointer"><Icon name="camera" className="w-4 h-4"/><span>Scan</span></button>
-                      )}
+                      <button type="button" onClick={() => openScanner('product_form')} className="px-3.5 py-2 bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white font-bold rounded-xl flex items-center gap-1 shrink-0 cursor-pointer shadow-md active:scale-95 transition-all"><Icon name="camera" className="w-4 h-4"/><span>Scan</span></button>
                     </div>
                   </div>
                   <div><label className="font-bold text-slate-400 mb-1 block">Nama Produk *</label><input type="text" required placeholder="Contoh: Es Teh Manis" value={productForm.name} onChange={(e) => setProductForm({...productForm, name: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
