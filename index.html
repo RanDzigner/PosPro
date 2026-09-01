@@ -2768,16 +2768,14 @@
                       <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Kelola stok dan tambah stok cepat dengan scan barcode.</p>
                     </div>
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-                      {currentUser.role !== 'kasir' && (
-                        <button 
-                          onClick={() => openScanner('scan_new_product')} 
-                          className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white px-3.5 py-2.5 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
-                          title="Pindai barcode kemasan untuk mendaftarkan barang baru"
-                        >
-                          <Icon name="scan" className="w-4 h-4" />
-                          <span>+ Scan Produk Baru</span>
-                        </button>
-                      )}
+                      <button 
+                        onClick={() => openScanner('scan_new_product')} 
+                        className="flex-1 sm:flex-none bg-gradient-to-r from-emerald-600 to-teal-600 hover:brightness-110 text-white px-3.5 py-2.5 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
+                        title="Pindai barcode kemasan untuk mendaftarkan barang baru"
+                      >
+                        <Icon name="scan" className="w-4 h-4" />
+                        <span>+ Scan Produk Baru</span>
+                      </button>
                       <button 
                         onClick={() => openScanner('inventory_restock')} 
                         className="flex-1 sm:flex-none bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white px-3.5 py-2.5 rounded-2xl text-xs font-black flex items-center justify-center gap-1.5 shadow-md active:scale-95 transition-all cursor-pointer"
@@ -2787,9 +2785,7 @@
                       </button>
                       <button onClick={() => setShowRestockModal(true)} className="flex-1 sm:flex-none bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"><Icon name="plus" className="w-4 h-4" /> Masuk Form</button>
                       <button onClick={() => setShowStockOutModal(true)} className="flex-1 sm:flex-none bg-rose-600 hover:bg-rose-700 text-white px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1 cursor-pointer"><Icon name="minus" className="w-4 h-4" /> Keluar</button>
-                      {currentUser.role !== 'kasir' && (
-                        <button onClick={() => { setEditingProduct(null); setProductForm({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' }); setIsProductModalOpen(true); }} className={`flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1 border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-white hover:bg-[#282d5e]' : 'bg-slate-800 text-white'}`}><Icon name="plus" className="w-4 h-4" /> + Manual</button>
-                      )}
+                      <button onClick={() => { setEditingProduct(null); setProductForm({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' }); setIsProductModalOpen(true); }} className={`flex-1 sm:flex-none px-3.5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-center gap-1 border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-white hover:bg-[#282d5e]' : 'bg-slate-800 text-white'}`}><Icon name="plus" className="w-4 h-4" /> + Manual</button>
                     </div>
                   </div>
 
@@ -3223,6 +3219,52 @@
                       </button>
                     </form>
                   </div>
+
+                  <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
+                    theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+                  }`}>
+                    <h3 className={`font-extrabold text-sm border-b pb-2 ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>Keamanan & Kata Sandi (Akses Role)</h3>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Ubah password untuk membatasi akses peran Owner atau Admin. Kosongkan form jika tidak ingin mengubah.</p>
+                    <form onSubmit={(e) => { 
+                      e.preventDefault(); 
+                      const newOwner = e.target.ownerPass.value;
+                      const newAdmin = e.target.adminPass.value;
+                      const updatedPasswords = { ...rolePasswords };
+                      let isChanged = false;
+                      
+                      if (newOwner && newOwner.trim() !== '') {
+                        updatedPasswords.owner = newOwner.trim();
+                        isChanged = true;
+                      }
+                      if (newAdmin && newAdmin.trim() !== '') {
+                        updatedPasswords.admin = newAdmin.trim();
+                        isChanged = true;
+                      }
+                      
+                      if (isChanged) {
+                        setRolePasswords(updatedPasswords);
+                        saveToLocal(`${userStoragePrefix}_passwords`, updatedPasswords);
+                        showToast('Kata sandi berhasil diperbarui!');
+                        e.target.reset();
+                      } else {
+                        showToast('Tidak ada kata sandi yang diubah.');
+                      }
+                    }} className="space-y-3 text-xs">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="font-bold text-slate-400 mb-1 block">Kata Sandi Owner Baru</label>
+                          <input type="password" name="ownerPass" placeholder="Biarkan kosong jika tidak diubah" className={`w-full px-3 py-2.5 rounded-xl border outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50 border-slate-200'}`} />
+                        </div>
+                        <div>
+                          <label className="font-bold text-slate-400 mb-1 block">Kata Sandi Admin Baru</label>
+                          <input type="password" name="adminPass" placeholder="Biarkan kosong jika tidak diubah" className={`w-full px-3 py-2.5 rounded-xl border outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50 border-slate-200'}`} />
+                        </div>
+                      </div>
+                      <button type="submit" className="w-full py-3 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-700 hover:to-red-700 text-white rounded-2xl font-black shadow-md cursor-pointer transition-all">
+                        Perbarui Kata Sandi Akses
+                      </button>
+                    </form>
+                  </div>
                 </div>
               )}
             </div>
@@ -3308,7 +3350,7 @@
                   }`}>
                     <p className="font-black text-sm">{scannerModal.feedback.title}</p>
                     <p>{scannerModal.feedback.desc}</p>
-                    {scannerModal.feedback.action === 'create_product' && currentUser.role !== 'kasir' && (
+                    {scannerModal.feedback.action === 'create_product' && (
                       <button 
                         onClick={() => {
                           const scannedSku = scannerModal.feedback.code;
@@ -3627,6 +3669,40 @@
                     <button type="button" onClick={() => addRowDynamicList(restockForm, setRestockForm)} className="text-[11px] font-bold text-[#00d2d3] cursor-pointer">+ Tambah Baris</button>
                   </div>
                   <button type="submit" className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">Simpan Stok Masuk</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Stok Keluar / Rusak */}
+          {showStockOutModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+              }`}>
+                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center bg-rose-500/20 text-rose-400">
+                  <h3 className="font-black text-sm flex items-center gap-1.5"><Icon name="minus" className="w-4 h-4"/> Stok Keluar / Rusak</h3>
+                  <button onClick={() => setShowStockOutModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button>
+                </div>
+                <form onSubmit={handleSaveStockOut} className="p-4 overflow-y-auto space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">Alasan Keluar *</label>
+                    <input type="text" required placeholder="Contoh: Barang rusak / Kedaluwarsa" value={stockOutForm.reason} onChange={(e) => setStockOutForm({...stockOutForm, reason: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="font-bold text-slate-400 block">Daftar Barang Keluar:</label>
+                    {stockOutForm.items.map((it, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <select required value={it.productId} onChange={(e) => updateDynamicList(stockOutForm, setStockOutForm, idx, 'productId', e.target.value)} className={`flex-1 p-2.5 border rounded-xl text-xs outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`}>
+                          <option value="">-- Pilih Barang --</option>
+                          {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                        <input type="number" required min="1" placeholder="Qty" value={it.qty} onChange={(e) => updateDynamicList(stockOutForm, setStockOutForm, idx, 'qty', e.target.value)} className={`w-16 p-2.5 border rounded-xl text-center text-xs font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} />
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => addRowDynamicList(stockOutForm, setStockOutForm)} className="text-[11px] font-bold text-[#00d2d3] cursor-pointer">+ Tambah Baris</button>
+                  </div>
+                  <button type="submit" className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">Simpan Stok Keluar</button>
                 </form>
               </div>
             </div>
