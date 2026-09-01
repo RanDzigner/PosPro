@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>POSPro - Sistem Kasir Cloud Sync Real-Time</title>
+  <title>POSPro - Sistem Kasir Berlisensi & Cloud Sync</title>
   
   <!-- Tailwind CSS & Konfigurasi Tema -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -30,7 +30,7 @@
     }
   </script>
 
-  <!-- Pustaka React, Lucide, Html5Qrcode, dan MQTT Client untuk Real-Time Sync PC & HP -->
+  <!-- Pustaka React, Lucide, Html5Qrcode, dan MQTT Client -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -109,6 +109,64 @@
   <script type="text/babel">
     const { useState, useEffect, useMemo, useRef, useCallback, Component } = React;
 
+    // KUNCI RAHASIA MASTER LISENSI (Hanya diketahui sistem aplikasi & generator lisensi)
+    const MASTER_LICENSE_SECRET = "POSPRO_SECRET_KEY_DEV_9824X";
+
+    // Hash Helper untuk memvalidasi Lisensi Key Anti-Manipulasi
+    const generateLicenseChecksum = (payload) => {
+      const combined = `${payload}::${MASTER_LICENSE_SECRET}`;
+      let hash = 0;
+      for (let i = 0; i < combined.length; i++) {
+        const char = combined.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      return Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(-4);
+    };
+
+    // Fungsi Validasi Kode Lisensi
+    // Format: POS-[DURASI]-[SERIAL_ACAK]-[CHECKSUM]
+    // Contoh: POS-30D-A8B9C-7F2A atau POS-LIFE-K89Q2-9P1M
+    const verifyLicenseKey = (rawKey) => {
+      if (!rawKey) return { valid: false, message: 'Kode lisensi tidak boleh kosong.' };
+      const cleanKey = rawKey.trim().toUpperCase();
+      const parts = cleanKey.split('-');
+      
+      if (parts.length !== 4 || parts[0] !== 'POS') {
+        return { valid: false, message: 'Format lisensi salah. Contoh format: POS-30D-XXXXX-YYYY' };
+      }
+
+      const [prefix, durationCode, serial, checksum] = parts;
+      const expectedChecksum = generateLicenseChecksum(`${durationCode}-${serial}`);
+
+      if (checksum !== expectedChecksum) {
+        return { valid: false, message: 'Kode Lisensi tidak valid atau palsu!' };
+      }
+
+      let days = 0;
+      let label = '';
+      if (durationCode === 'LIFE') {
+        days = 99999;
+        label = 'Permanen (Lifetime)';
+      } else if (durationCode.endsWith('D')) {
+        days = parseInt(durationCode.replace('D', ''), 10);
+        label = `${days} Hari`;
+        if (isNaN(days) || days <= 0) {
+          return { valid: false, message: 'Durasi lisensi tidak valid.' };
+        }
+      } else {
+        return { valid: false, message: 'Tipe durasi lisensi tidak dikenali.' };
+      }
+
+      return {
+        valid: true,
+        key: cleanKey,
+        durationDays: days,
+        durationLabel: label,
+        serial: serial
+      };
+    };
+
     class ErrorBoundary extends Component {
       constructor(props) {
         super(props);
@@ -129,7 +187,7 @@
                   <i data-lucide="alert-triangle" className="w-8 h-8"></i>
                 </div>
                 <h2 className="text-lg font-black text-white">Memuat Ulang Sistem Kasir</h2>
-                <p className="text-xs text-slate-400">Data Anda tersimpan dengan aman di Cloud & Lokal. Klik tombol di bawah untuk memuat ulang.</p>
+                <p className="text-xs text-slate-400">Data Anda tersimpan dengan aman. Klik tombol di bawah untuk memuat ulang.</p>
                 <button 
                   onClick={() => window.location.reload()} 
                   className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-lg transition-all cursor-pointer"
@@ -231,7 +289,6 @@
       } catch (e) {}
     };
 
-    // Fungsi hash sederhana untuk mengamankan channel store dari email & password
     const generateStoreSyncKey = (email, password) => {
       const combined = `${email.trim().toLowerCase()}::${password.trim()}`;
       let hash = 0;
@@ -243,10 +300,34 @@
       return `pospro_vault_${Math.abs(hash).toString(36)}`;
     };
 
-    // Cloud Relay Storage untuk Backup State Asinkron
-    const CLOUD_STORAGE_BASE = 'https://api.counterapi.dev/v1/pospro_store';
-
     function App() {
+      // 1. STATE LISENSI APLIKASI
+      const [licenseData, setLicenseData] = useState(() => loadFromLocal('pospro_active_license', null));
+      const [licenseInputKey, setLicenseInputKey] = useState('');
+      const [licenseOwnerName, setLicenseOwnerName] = useState('');
+      const [licenseError, setLicenseError] = useState('');
+      const [showExtendLicenseModal, setShowExtendLicenseModal] = useState(false);
+
+      // Hitung Sisa Waktu Lisensi
+      const licenseStatus = useMemo(() => {
+        if (!licenseData) return { isActivated: false, isExpired: true, daysRemaining: 0 };
+        if (licenseData.isDemo) return { isActivated: true, isDemo: true, isExpired: false, daysRemaining: 999, label: 'Mode Uji Coba (Demo)' };
+        if (licenseData.isLifetime) return { isActivated: true, isLifetime: true, isExpired: false, daysRemaining: 99999, label: 'Aktif Selamanya (Lifetime)' };
+
+        const now = Date.now();
+        const expiry = new Date(licenseData.expiresAt).getTime();
+        const diffMs = expiry - now;
+        const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+
+        return {
+          isActivated: true,
+          isExpired: daysLeft <= 0,
+          daysRemaining: Math.max(0, daysLeft),
+          expiryDateStr: new Date(licenseData.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
+          label: daysLeft > 0 ? `${daysLeft} Hari Lagi (s/d ${new Date(licenseData.expiresAt).toLocaleDateString('id-ID')})` : 'Lisensi Telah Berakhir'
+        };
+      }, [licenseData]);
+
       // Sesi Akun Pengguna
       const [authSession, setAuthSession] = useState(() => loadFromLocal('pospro_cloud_user', null));
       const [loginForm, setLoginForm] = useState({ email: '', password: '', rememberMe: true });
@@ -257,7 +338,7 @@
       const [syncStatusMsg, setSyncStatusMsg] = useState('Cloud Siap Terhubung');
       const [theme, setTheme] = useState(() => loadFromLocal('pospro_theme', 'dark'));
 
-      const isDemoUser = authSession?.isDemo === true;
+      const isDemoUser = authSession?.isDemo === true || licenseData?.isDemo === true;
       const syncKey = authSession ? (isDemoUser ? 'demo_vault' : authSession.syncKey) : 'guest';
       const userStoragePrefix = `pospro_data_${syncKey}`;
 
@@ -348,12 +429,74 @@
       const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
       const fileInputRef = useRef(null);
       const isRemoteUpdatingRef = useRef(false);
-      const lastSavedStateRef = useRef(null); // Ref baru untuk mencegat overwrite saat reload
-      const lastLocalUpdateTimestampRef = useRef(loadFromLocal(`${userStoragePrefix}_last_ts`, 0)); // Ubah dari Date.now() menjadi 0
+      const lastSavedStateRef = useRef(null);
+      const lastLocalUpdateTimestampRef = useRef(loadFromLocal(`${userStoragePrefix}_last_ts`, 0));
       const mqttClientRef = useRef(null);
       const deviceIdRef = useRef(Math.random().toString(36).substring(7));
 
-      // Fungsi khusus untuk menarik data dari cache dengan aman setiap kali ada pergantian akun
+      const handleActivateLicense = (e) => {
+        e.preventDefault();
+        setLicenseError('');
+        const verified = verifyLicenseKey(licenseInputKey);
+
+        if (!verified.valid) {
+          setLicenseError(verified.message);
+          return;
+        }
+
+        // Cek jika lisensi sudah pernah diaktivasi di penyimpanan ini
+        const usedKeys = loadFromLocal('pospro_used_license_keys', []);
+        if (usedKeys.includes(verified.key)) {
+          setLicenseError('⚠️ Lisensi Key ini sudah pernah digunakan (1x Pakai)! Harap hubungi Admin untuk lisensi baru.');
+          return;
+        }
+
+        const now = new Date();
+        let expiresAt = null;
+        if (verified.durationDays < 99999) {
+          const expDate = new Date();
+          expDate.setDate(expDate.getDate() + verified.durationDays);
+          expiresAt = expDate.toISOString();
+        }
+
+        const newLicense = {
+          key: verified.key,
+          ownerName: licenseOwnerName.trim() || 'Pemilik Toko',
+          activatedAt: now.toISOString(),
+          expiresAt: expiresAt,
+          durationDays: verified.durationDays,
+          durationLabel: verified.durationLabel,
+          isLifetime: verified.durationDays >= 99999,
+          isDemo: false
+        };
+
+        // Catat key sebagai sudah terpakai
+        saveToLocal('pospro_used_license_keys', [...usedKeys, verified.key]);
+        saveToLocal('pospro_active_license', newLicense);
+        setLicenseData(newLicense);
+        setLicenseInputKey('');
+        setLicenseOwnerName('');
+        setShowExtendLicenseModal(false);
+        showToast(`✅ Lisensi Berhasil Diaktifkan! Durasi: ${verified.durationLabel}`);
+      };
+
+      const handleDemoLicenseActivate = () => {
+        const demoLicense = {
+          key: 'POS-DEMO-TRIAL-0000',
+          ownerName: 'Pengguna Uji Coba (Demo)',
+          activatedAt: new Date().toISOString(),
+          expiresAt: null,
+          durationDays: 999,
+          durationLabel: 'Mode Uji Coba (Demo)',
+          isLifetime: false,
+          isDemo: true
+        };
+        saveToLocal('pospro_active_license', demoLicense);
+        setLicenseData(demoLicense);
+        handleDemoLogin();
+        showToast('Masuk Mode Uji Coba (Demo)');
+      };
+
       const loadStoreDataFromLocal = useCallback((prefix, email = '') => {
         const savedSettings = loadFromLocal(`${prefix}_settings`, null) || { ...defaultSettings, name: email ? `Toko ${email.split('@')[0].toUpperCase()}` : 'Toko Saya' };
         const savedProducts = loadFromLocal(`${prefix}_products`, defaultProducts);
@@ -373,9 +516,8 @@
         setDraftOrders(savedDrafts);
         setRolePasswords(savedPass);
 
-        lastLocalUpdateTimestampRef.current = loadFromLocal(`${prefix}_last_ts`, 0); // Ubah dari Date.now() menjadi 0
+        lastLocalUpdateTimestampRef.current = loadFromLocal(`${prefix}_last_ts`, 0);
         
-        // Pasang pelindung ref agar useEffect tidak mem-broadcast data ini balik ke server saat reload
         lastSavedStateRef.current = JSON.stringify({
             storeSettings: savedSettings, products: savedProducts, transactions: savedTrx,
             customers: savedCust, suppliers: savedSupp, expenses: savedExp, draftOrders: savedDrafts, rolePasswords: savedPass
@@ -387,7 +529,6 @@
         setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 2800);
       };
 
-      // Inisialisasi Real-Time WebSocket MQTT Engine antar PC & HP
       useEffect(() => {
         if (!authSession || isDemoUser) return;
 
@@ -395,7 +536,6 @@
         let client;
 
         try {
-          // Koneksi ke public WebSocket broker (WSS secure port)
           client = window.mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
             keepalive: 60,
             clientId: `pospro_${deviceIdRef.current}_${Math.random().toString(16).substr(2, 6)}`,
@@ -409,7 +549,6 @@
             client.subscribe(topic, { qos: 1 }, (err) => {
               if (!err) {
                 setSyncStatusMsg('Terkoneksi Real-Time PC ⇄ HP');
-                // Kirim ping permintaan state terbaru ke perangkat lain yang sedang aktif
                 client.publish(topic, JSON.stringify({
                   type: 'REQUEST_LATEST_STATE',
                   senderId: deviceIdRef.current,
@@ -422,23 +561,20 @@
           client.on('message', (receivedTopic, messageBuffer) => {
             try {
               const payload = JSON.parse(messageBuffer.toString());
-              if (!payload || payload.senderId === deviceIdRef.current) return; // Abaikan pesan dari diri sendiri
+              if (!payload || payload.senderId === deviceIdRef.current) return;
 
               if (payload.type === 'REQUEST_LATEST_STATE') {
-                // Perangkat lain baru buka, kirimkan database kita TAPI jangan perbarui timestamp 
                 broadcastCurrentState(true);
               } else if (payload.type === 'STORE_STATE_UPDATE') {
                 const incomingData = payload.data;
                 const incomingTs = payload.ts || 0;
                 const localTs = lastLocalUpdateTimestampRef.current || 0;
 
-                // Terima update jika timestamp lebih baru, ATAU jika ini balasan langsung (isResponse) dan timestamp setara
                 if (incomingTs > localTs || (payload.isResponse && incomingTs >= localTs)) {
                   isRemoteUpdatingRef.current = true;
                   lastLocalUpdateTimestampRef.current = incomingTs;
                   saveToLocal(`${userStoragePrefix}_last_ts`, incomingTs);
 
-                  // [KRITIKAL] Simpan secara eksplisit ke LocalStorage di sini agar data kebal terhadap Reload halaman (F5)
                   if (incomingData.storeSettings) saveToLocal(`${userStoragePrefix}_settings`, incomingData.storeSettings);
                   if (incomingData.products) saveToLocal(`${userStoragePrefix}_products`, incomingData.products);
                   if (incomingData.transactions) saveToLocal(`${userStoragePrefix}_transactions`, incomingData.transactions);
@@ -448,7 +584,6 @@
                   if (incomingData.draftOrders) saveToLocal(`${userStoragePrefix}_drafts`, incomingData.draftOrders);
                   if (incomingData.rolePasswords) saveToLocal(`${userStoragePrefix}_passwords`, incomingData.rolePasswords);
 
-                  // Update React State
                   if (incomingData.storeSettings) setStoreSettings(incomingData.storeSettings);
                   if (incomingData.products) setProducts(incomingData.products);
                   if (incomingData.transactions) setTransactions(incomingData.transactions);
@@ -458,7 +593,6 @@
                   if (incomingData.draftOrders) setDraftOrders(incomingData.draftOrders);
                   if (incomingData.rolePasswords) setRolePasswords(incomingData.rolePasswords);
 
-                  // Cegah sistem bereaksi menembakkan balik data dari jaringan ini
                   lastSavedStateRef.current = JSON.stringify(incomingData);
 
                   setLastSyncTime(new Date());
@@ -489,13 +623,11 @@
         };
       }, [authSession, isDemoUser, syncKey, userStoragePrefix]);
 
-      // Siarkan State Toko ke Seluruh Perangkat PC & HP yang Sedang Terhubung
       const broadcastCurrentState = useCallback((isResponseToRequest = false) => {
         if (!authSession || isDemoUser || !mqttClientRef.current || !mqttClientRef.current.connected) return;
 
         let currentTs = lastLocalUpdateTimestampRef.current;
 
-        // Jika ini adalah aktivitas kasir murni (bukan merespon perangkat baru loading), perbarui timestamp
         if (!isResponseToRequest) {
           currentTs = Date.now();
           lastLocalUpdateTimestampRef.current = currentTs;
@@ -506,7 +638,7 @@
           type: 'STORE_STATE_UPDATE',
           senderId: deviceIdRef.current,
           ts: currentTs,
-          isResponse: isResponseToRequest, // Tambahkan flag respon agar perangkat penerima mau menerima data dengan timestamp yang sama
+          isResponse: isResponseToRequest,
           data: {
             storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords
           }
@@ -518,19 +650,16 @@
         setSyncStatusMsg(isResponseToRequest ? 'Mengirim Data ke Perangkat Lain' : 'Tersinkronisasi Real-Time');
       }, [authSession, isDemoUser, syncKey, userStoragePrefix, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
 
-      // Simpan Perubahan ke Cache Lokal & Picu Broadcast ke PC/HP
       useEffect(() => {
         if (!authSession) return;
         
         const currentStateStr = JSON.stringify({ storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords });
         
-        // Abaikan penyimpanan & broadcast pada saat baru pertama kali load/reload
         if (lastSavedStateRef.current === null) {
           lastSavedStateRef.current = currentStateStr;
           return; 
         }
 
-        // Cek jika tidak ada perubahan data murni, hentikan (mencegah loop)
         if (lastSavedStateRef.current === currentStateStr) {
           return;
         }
@@ -554,7 +683,6 @@
         }
       }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, authSession, isDemoUser, broadcastCurrentState]);
 
-      // Handle Submit Login Akun Toko (Tanpa Error 401 Google)
       const handleAccountLogin = (e) => {
         e.preventDefault();
         const email = loginForm.email.trim().toLowerCase();
@@ -580,7 +708,6 @@
         };
 
         setTimeout(() => {
-          // Tarik data dengan aman SEBELUM auth session diaktifkan untuk mencegah overwrite memory
           const newUserPrefix = `pospro_data_${storeSyncKey}`;
           loadStoreDataFromLocal(newUserPrefix, email);
 
@@ -630,7 +757,6 @@
       const [showDraftListModal, setShowDraftListModal] = useState(false);
       const [isSaving, setIsSaving] = useState(false);
 
-      // State Scanner Kamera HP & Pemindai USB/BT PC
       const [scannerModal, setScannerModal] = useState({
         isOpen: false,
         target: 'pos',
@@ -643,7 +769,6 @@
       const scannerInstanceRef = useRef(null);
       const lastScanTimeRef = useRef(0);
 
-      // State Modal Form Entitas
       const [isProductModalOpen, setIsProductModalOpen] = useState(false);
       const [editingProduct, setEditingProduct] = useState(null);
       const [productForm, setProductForm] = useState({ sku: '', name: '', costPrice: '', price: '', packPrice: '', stock: '', category: 'Umum', supplier: '' });
@@ -675,13 +800,13 @@
       const [viewingTransaction, setViewingTransaction] = useState(null);
       const [deleteTransactionModal, setDeleteTransactionModal] = useState({ show: false, transaction: null, restoreStock: true });
       const [reportPeriod, setReportPeriod] = useState('month');
+
       const handleDeleteTransaction = (transaction, restoreStock = true) => {
         if (currentUser.role !== 'owner') {
           showToast('Hanya Owner yang berhak menghapus riwayat transaksi!', 'error');
           return;
         }
 
-        // 1. Kembalikan stok jika opsi dicentang
         let updatedProducts = [...products];
         if (restoreStock && transaction.items) {
           transaction.items.forEach(item => {
@@ -696,7 +821,6 @@
           setProducts(updatedProducts);
         }
 
-        // 2. Koreksi piutang pelanggan jika transaksi berstatus Hutang dan ada sisa belum lunas
         let updatedCustomers = [...customers];
         if (transaction.customerId && transaction.paymentMethod === 'Hutang') {
           const cust = updatedCustomers.find(c => c.id === transaction.customerId);
@@ -714,7 +838,6 @@
           }
         }
 
-        // 3. Hapus transaksi dari daftar
         const newTrxList = transactions.filter(t => t.id !== transaction.id);
         setTransactions(newTrxList);
         setViewingTransaction(null);
@@ -1363,6 +1486,88 @@
         });
       }, [products, selectedCategory, searchQuery]);
 
+      if (!licenseStatus.isActivated || licenseStatus.isExpired) {
+        return (
+          <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans">
+            <div className="absolute top-1/4 -left-20 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            <div className="bg-[#181b3b]/95 backdrop-blur-xl border border-[#2a2f60] p-6 sm:p-8 rounded-3xl max-w-md w-full shadow-2xl z-10 relative space-y-5 text-center">
+              <div className="space-y-2">
+                <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 p-0.5 mx-auto shadow-2xl">
+                  <div className="w-full h-full bg-[#181b3b] rounded-[22px] flex items-center justify-center">
+                    <Icon name="key-round" className="w-8 h-8 text-[#00d2d3]" />
+                  </div>
+                </div>
+                <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">Aktivasi Lisensi POSPro</h1>
+                <p className="text-xs text-slate-400">
+                  {licenseStatus.isExpired 
+                    ? 'Masa aktif lisensi aplikasi Anda telah berakhir. Masukkan lisensi baru untuk memperpanjang.' 
+                    : 'Silakan masukkan Kode Lisensi resmi untuk mengaktifkan sistem kasir.'}
+                </p>
+              </div>
+
+              {licenseError && (
+                <div className="p-3 bg-rose-500/20 border border-rose-500/40 rounded-2xl text-xs text-rose-300 font-bold flex items-center gap-2 text-left animate-in fade-in">
+                  <Icon name="alert-circle" className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span>{licenseError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleActivateLicense} className="space-y-3.5 text-left text-xs">
+                <div>
+                  <label className="text-slate-300 font-bold mb-1.5 block flex items-center gap-1.5">
+                    <Icon name="user" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>Nama Pemilik / Nama Usaha:</span>
+                  </label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="Contoh: Toko Berkah Abadi" 
+                    value={licenseOwnerName} 
+                    onChange={(e) => setLicenseOwnerName(e.target.value)} 
+                    className="w-full p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-white outline-none focus:border-[#00d2d3] font-medium"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-slate-300 font-bold mb-1.5 block flex items-center gap-1.5">
+                    <Icon name="shield-check" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>Kode Lisensi Key (1x Pakai):</span>
+                  </label>
+                  <input 
+                    type="text" 
+                    required 
+                    placeholder="POS-30D-XXXXX-YYYY" 
+                    value={licenseInputKey} 
+                    onChange={(e) => setLicenseInputKey(e.target.value.toUpperCase())} 
+                    className="w-full p-3.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-[#00d2d3] outline-none focus:border-[#00d2d3] font-mono font-bold text-center tracking-wider text-sm sm:text-base"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-3.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-indigo-700 hover:brightness-110 text-white rounded-2xl font-black text-xs sm:text-sm shadow-xl active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  <Icon name="check-circle" className="w-4 h-4" />
+                  <span>Aktivasi Lisensi Sekarang</span>
+                </button>
+              </form>
+
+              <div className="pt-2 border-t border-[#2a2f60] flex items-center justify-center">
+                <button
+                  onClick={handleDemoLicenseActivate}
+                  className="w-full py-2.5 px-3 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer"
+                >
+                  <Icon name="sparkles" className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Coba Gratis (Mode Demo 1 Hari)</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
       if (!authSession) {
         return (
           <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans">
@@ -1378,6 +1583,14 @@
                 </div>
                 <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">POSPro Cloud Sync</h1>
                 <p className="text-xs text-slate-400">Sistem Kasir & Sinkronisasi Real-Time PC ⇄ HP</p>
+                
+                {/* Badge Status Lisensi */}
+                <div className="pt-1">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold rounded-full">
+                    <Icon name="shield-check" className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Lisensi: {licenseStatus.label}</span>
+                  </span>
+                </div>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-[#0f1228] border border-[#2a2f60] text-left space-y-1.5">
@@ -1537,17 +1750,20 @@
 
         return (
           <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 max-w-7xl mx-auto">
-            {/* Indikator Status Cloud Sync Antar PC & HP */}
+            {/* Indikator Status Cloud Sync & Lisensi */}
             <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs ${
               theme === 'dark' ? 'bg-[#181b3b]/90 border-[#2a2f60]' : 'bg-white border-slate-200 shadow-sm'
             }`}>
               <div className="flex items-center gap-2.5">
                 <span className={`w-3 h-3 rounded-full shrink-0 ${isCloudSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
                 <div>
-                  <p className="font-extrabold text-xs flex items-center gap-1.5">
+                  <p className="font-extrabold text-xs flex items-center gap-1.5 flex-wrap">
                     <Icon name="zap" className="w-3.5 h-3.5 text-[#00d2d3]" />
                     <span>{isCloudSyncing ? 'Menyinkronkan data...' : 'Real-Time Cloud Sync Aktif (PC ⇄ HP)'}</span>
                     <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono">Live Sync</span>
+                    <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.2 rounded font-bold">
+                      🛡️ Lisensi: {licenseStatus.label}
+                    </span>
                   </p>
                   <p className="text-[10px] text-slate-400 mt-0.5">
                     Akun: <span className="text-cyan-400 font-bold">{authSession?.email}</span> • Status: <span className="text-emerald-400 font-bold">{syncStatusMsg}</span> ({lastSyncTime ? lastSyncTime.toLocaleTimeString('id-ID') : 'Baru saja'})
@@ -1568,7 +1784,6 @@
               </div>
             </div>
 
-            {/* BARIS 1: 3 Donut Chart Kategori & 4 Kotak Metrik KPI */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {categoryStats.map((cat, idx) => {
@@ -1722,7 +1937,6 @@
               </div>
             </div>
 
-            {/* BARIS 2: Grafik Persediaan Barang & Ranking Barang Terlaris */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div className={`lg:col-span-7 p-4 sm:p-6 rounded-3xl border flex flex-col justify-between transition-all ${
                 theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm text-slate-800'
@@ -2235,8 +2449,8 @@
               </div>
             </div>
             
-            {/* Profil Akun */}
-            <div className="px-4 mb-2">
+            {/* Profil Akun & Status Lisensi di Sidebar */}
+            <div className="px-4 mb-2 space-y-2">
               <div className={`p-3.5 rounded-2xl border flex flex-col gap-2.5 transition-all ${
                 theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50 border-slate-200'
               }`}>
@@ -2286,9 +2500,24 @@
                   </button>
                 </div>
               </div>
+
+              {/* Status Masa Aktif Lisensi Sidebar */}
+              <div className={`p-2.5 rounded-2xl border flex items-center justify-between text-[11px] ${
+                theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-100 border-slate-200'
+              }`}>
+                <div className="flex items-center gap-1.5 overflow-hidden">
+                  <Icon name="shield-check" className="w-3.5 h-3.5 text-[#00d2d3] shrink-0" />
+                  <span className="truncate font-semibold text-slate-300">{licenseStatus.label}</span>
+                </div>
+                <button 
+                  onClick={() => setShowExtendLicenseModal(true)} 
+                  className="text-[#00d2d3] font-black text-[10px] hover:underline shrink-0 ml-1 cursor-pointer"
+                >
+                  Perpanjang
+                </button>
+              </div>
             </div>
 
-            {/* Navigasi Menu */}
             <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto pt-2">
               {[
                 { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard Data', roles: ['owner', 'admin'] },
@@ -2380,8 +2609,6 @@
               </div>
             </div>
 
-            {}
-            {/* Bilah Tab Navigasi Atas Mobile - Desain Ikon Atas & Teks Bawah */}
             <div className={`lg:hidden px-2 py-2 z-20 shrink-0 border-b shadow-sm ${
               theme === 'dark' ? 'bg-[#181b3b]/98 border-[#2a2f60]' : 'bg-white/98 border-slate-200'
             }`}>
@@ -2603,8 +2830,45 @@
                 </div>
               )}
 
+              {/* Pengaturan Toko & Informasi Lisensi */}
               {activeTab === 'settings' && currentUser.role === 'owner' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-4xl mx-auto space-y-4">
+                  {/* Kartu Informasi Lisensi */}
+                  <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
+                    theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-extrabold text-sm flex items-center gap-2">
+                        <Icon name="shield-check" className="w-4 h-4 text-[#00d2d3]"/> Status Lisensi POSPro
+                      </h3>
+                      <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-[11px] font-bold">
+                        {licenseStatus.label}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
+                      <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                        <p className="text-slate-400 text-[10px]">Pemilik Lisensi</p>
+                        <p className="font-bold mt-0.5">{licenseData?.ownerName || 'Pemilik Toko'}</p>
+                      </div>
+                      <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                        <p className="text-slate-400 text-[10px]">Kode Lisensi Terpasang</p>
+                        <p className="font-mono font-bold text-[#00d2d3] mt-0.5 truncate">{licenseData?.key || '-'}</p>
+                      </div>
+                      <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                        <p className="text-slate-400 text-[10px]">Masa Berlaku</p>
+                        <p className="font-bold text-amber-400 mt-0.5">{licenseStatus.label}</p>
+                      </div>
+                    </div>
+                    <div className="pt-2 flex justify-end">
+                      <button 
+                        onClick={() => setShowExtendLicenseModal(true)} 
+                        className="py-2.5 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer hover:brightness-110"
+                      >
+                        + Perpanjang / Ganti Lisensi
+                      </button>
+                    </div>
+                  </div>
+
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
@@ -2620,7 +2884,7 @@
                     </div>
                     <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
                       {isDemoUser 
-                        ? 'Fitur unduh dan simpan file cadangan lokal dinonaktifkan pada Mode Demo. Silakan login akun toko Anda untuk mengamankan data.' 
+                        ? 'Fitur unduh dan simpan file cadangan lokal dinonaktifkan pada Mode Demo. Silakan aktivasi lisensi resmi untuk mengamankan data.' 
                         : 'Unduh seluruh data toko ke file cadangan atau pulihkan data kapan saja.'}
                     </p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
@@ -2661,19 +2925,6 @@
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
-                    <h3 className="font-extrabold text-sm flex items-center gap-2"><Icon name="download" className="w-4 h-4 text-[#00d2d3]"/> Cadangan File Lokal (.JSON)</h3>
-                    <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Unduh seluruh data toko ke file cadangan atau pulihkan data kapan saja.</p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
-                      <button onClick={handleBackupDatabase} className="py-2.5 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 text-white shadow-md cursor-pointer"><Icon name="download" className="w-4 h-4"/> Download Backup (.json)</button>
-                      <label className={`py-2.5 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer text-center border ${
-                        theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200' : 'bg-slate-100 border-slate-200'
-                      }`}><Icon name="upload" className="w-4 h-4 text-[#00d2d3]"/> Pulihkan Data<input ref={fileInputRef} type="file" accept=".json" onChange={handleRestoreDatabase} className="hidden" /></label>
-                    </div>
-                  </div>
-
-                  <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
-                    theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
-                  }`}>
                     <h3 className={`font-extrabold text-sm border-b pb-2 ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>Identitas Toko & Nota</h3>
                     <form onSubmit={(e) => { e.preventDefault(); showToast('Pengaturan toko disimpan!'); }} className="space-y-3 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -2696,7 +2947,65 @@
             </div>
           </div>
 
-          {}
+          {showExtendLicenseModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+              <div className={`rounded-3xl w-full max-w-md p-6 space-y-4 border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200 text-slate-800'
+              }`}>
+                <div className="flex justify-between items-center">
+                  <h3 className="font-black text-sm flex items-center gap-2">
+                    <Icon name="key-round" className="w-4 h-4 text-[#00d2d3]" /> Perpanjang Masa Lisensi
+                  </h3>
+                  <button onClick={() => { setShowExtendLicenseModal(false); setLicenseError(''); }} className="cursor-pointer">
+                    <Icon name="x" className="w-5 h-5 text-slate-400" />
+                  </button>
+                </div>
+
+                {licenseError && (
+                  <div className="p-3 bg-rose-500/20 border border-rose-500/40 rounded-2xl text-xs text-rose-300 font-bold flex items-center gap-2 text-left">
+                    <Icon name="alert-circle" className="w-4 h-4 shrink-0 text-rose-400" />
+                    <span>{licenseError}</span>
+                  </div>
+                )}
+
+                <form onSubmit={handleActivateLicense} className="space-y-3.5 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-400 block mb-1">Nama Pemilik / Toko:</label>
+                    <input 
+                      type="text" 
+                      required 
+                      value={licenseOwnerName || licenseData?.ownerName || ''} 
+                      onChange={(e) => setLicenseOwnerName(e.target.value)} 
+                      className={`w-full p-3 rounded-xl border outline-none font-bold ${
+                        theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'
+                      }`} 
+                    />
+                  </div>
+                  <div>
+                    <label className="font-bold text-slate-400 block mb-1">Kode Lisensi Baru (1x Pakai):</label>
+                    <input 
+                      type="text" 
+                      required 
+                      placeholder="POS-30D-XXXXX-YYYY" 
+                      value={licenseInputKey} 
+                      onChange={(e) => setLicenseInputKey(e.target.value.toUpperCase())} 
+                      className={`w-full p-3.5 rounded-xl border text-center font-mono font-black text-sm sm:text-base outline-none tracking-wider text-[#00d2d3] ${
+                        theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'
+                      }`} 
+                    />
+                  </div>
+                  <button 
+                    type="submit" 
+                    className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl text-xs shadow-lg cursor-pointer"
+                  >
+                    Terapkan Lisensi Baru
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Scanner Kamera Barcode */}
           {scannerModal.isOpen && (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
               <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
