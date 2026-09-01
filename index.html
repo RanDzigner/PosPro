@@ -703,6 +703,10 @@
       const [transactionNote, setTransactionNote] = useState('');
       
       const [showDraftListModal, setShowDraftListModal] = useState(false);
+      const [showDraftSaveModal, setShowDraftSaveModal] = useState(false);
+      const [draftNameInput, setDraftNameInput] = useState('');
+      const [showDiscountModal, setShowDiscountModal] = useState(false);
+      const [discountInput, setDiscountInput] = useState('');
       const [isSaving, setIsSaving] = useState(false);
 
       const [scannerModal, setScannerModal] = useState({
@@ -730,6 +734,7 @@
       const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
       const [editingCustomer, setEditingCustomer] = useState(null);
       const [customerForm, setCustomerForm] = useState({ name: '', phone: '', address: '' });
+      const [viewingCustomer, setViewingCustomer] = useState(null);
       const [selectedCustomerPOS, setSelectedCustomerPOS] = useState('');
 
       const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
@@ -1183,6 +1188,17 @@
         setViewingTransaction(newTransaction);
       };
 
+      const saveDraft = () => {
+        if (cart.length === 0) return;
+        if (!draftNameInput.trim()) { showToast('Nama pelanggan/meja wajib diisi', 'error'); return; }
+        setDraftOrders([...draftOrders, { id: generateId(), name: draftNameInput, cart, discount, date: new Date().toLocaleString('id-ID') }]);
+        setCart([]); setDiscount(storeSettings.defaultDiscount || 0); setDraftNameInput(''); setShowDraftSaveModal(false); showToast(`Pesanan ${draftNameInput} berhasil ditahan`);
+      };
+
+      const loadDraft = (draft) => {
+        setCart(draft.cart); setDiscount(draft.discount || 0); setDraftOrders(draftOrders.filter(d => d.id !== draft.id)); setShowDraftListModal(false); showToast(`Pesanan ${draft.name} dilanjutkan`);
+      };
+
       const handleSaveProduct = (e) => {
         e.preventDefault();
         if (isSaving) return;
@@ -1423,29 +1439,27 @@
         setState({ ...state, items });
       };
 
-      const categories = useMemo(() => ['Semua', ...Array.from(new Set(products.map(p => p.category || 'Umum')))], [products]);
-
+      const categories = useMemo(() => ['Semua', ...new Set(products.map(p => p.category || 'Umum'))], [products]);
       const filteredProducts = useMemo(() => {
         return products.filter(p => {
-          const matchesCat = selectedCategory === 'Semua' || p.category === selectedCategory;
-          const q = searchQuery.toLowerCase();
-          const matchesSearch = p.name.toLowerCase().includes(q) || (p.sku && p.sku.toLowerCase().includes(q));
-          return matchesCat && matchesSearch;
+          const matchCat = selectedCategory === 'Semua' || p.category === selectedCategory;
+          const matchSearch = (p.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+                              (p.sku || '').toLowerCase().includes(searchQuery.toLowerCase());
+          return matchCat && matchSearch;
         });
       }, [products, selectedCategory, searchQuery]);
 
+      // Layar Aktivasi Lisensi jika Lisensi belum aktif / kedaluwarsa
       if (!licenseStatus.isActivated || licenseStatus.isExpired) {
         return (
-          <div className="min-h-screen bg-[#0f1228] text-white flex flex-col items-center justify-center p-4 sm:p-6 relative overflow-hidden font-sans">
-            <div className="absolute top-1/4 -left-20 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none"></div>
-            <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl pointer-events-none"></div>
+          <div className="min-h-screen bg-[#0f1228] text-slate-100 flex flex-col items-center justify-center p-4 sm:p-6 select-none font-sans relative overflow-hidden">
+            <div className="absolute -top-32 -left-32 w-96 h-96 bg-indigo-600/20 rounded-full blur-3xl pointer-events-none"></div>
+            <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-cyan-600/15 rounded-full blur-3xl pointer-events-none"></div>
 
-            <div className="bg-[#181b3b]/95 backdrop-blur-xl border border-[#2a2f60] p-6 sm:p-8 rounded-3xl max-w-md w-full shadow-2xl z-10 relative space-y-5 text-center">
+            <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 text-center relative z-10 animate-in fade-in zoom-in duration-300">
               <div className="space-y-2">
-                <div className="w-16 h-16 rounded-3xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-cyan-500 p-0.5 mx-auto shadow-2xl">
-                  <div className="w-full h-full bg-[#181b3b] rounded-[22px] flex items-center justify-center">
-                    <Icon name="key-round" className="w-8 h-8 text-[#00d2d3]" />
-                  </div>
+                <div className="w-14 h-14 bg-gradient-to-tr from-indigo-600 via-purple-600 to-[#00d2d3] rounded-2xl flex items-center justify-center mx-auto text-white shadow-lg mb-2">
+                  <Icon name="shield-check" className="w-7 h-7 text-white" />
                 </div>
                 <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">Aktivasi Lisensi POSPro</h1>
                 <p className="text-xs text-slate-400">
@@ -2458,14 +2472,17 @@
               </div>
             </div>
 
-            <div className={`lg:hidden px-2 py-2 z-20 shrink-0 border-b shadow-sm ${
+            <div className={`lg:hidden px-2 py-2 z-20 shrink-0 border-b shadow-sm overflow-x-auto no-scrollbar ${
               theme === 'dark' ? 'bg-[#181b3b]/98 border-[#2a2f60]' : 'bg-white/98 border-slate-200'
             }`}>
-              <div className="grid grid-cols-6 gap-1 w-full items-center">
+              <div className="flex gap-1.5 w-max min-w-full items-center">
                 {[
                   { id: 'dashboard', icon: 'layout-grid', label: 'Dashboard', roles: ['owner', 'admin'] },
                   { id: 'pos', icon: 'calculator', label: 'Kasir', roles: ['owner', 'admin', 'kasir'] },
                   { id: 'inventory', icon: 'package', label: 'Produk', roles: ['owner', 'admin', 'kasir'] },
+                  { id: 'customers', icon: 'users', label: 'Pelanggan', roles: ['owner', 'admin'] },
+                  { id: 'suppliers', icon: 'truck', label: 'Supplier', roles: ['owner'] },
+                  { id: 'expenses', icon: 'receipt', label: 'Pengeluaran', roles: ['owner'] },
                   { id: 'transactions', icon: 'history', label: 'Riwayat', roles: ['owner', 'admin', 'kasir'] },
                   { id: 'reports', icon: 'pie-chart', label: 'Laporan', roles: ['owner'] },
                   { id: 'settings', icon: 'settings', label: 'Toko', roles: ['owner'] }
@@ -2475,7 +2492,7 @@
                     <button
                       key={item.id}
                       onClick={() => setActiveTab(item.id)}
-                      className={`flex flex-col items-center justify-center py-2 px-1 rounded-2xl transition-all cursor-pointer ${
+                      className={`flex flex-col items-center justify-center py-2 px-3 min-w-[70px] rounded-2xl transition-all cursor-pointer ${
                         isActive
                           ? (theme === 'dark' 
                               ? 'bg-[#21254d] border-2 border-[#00d2d3] shadow-md shadow-cyan-500/20 text-[#00d2d3]' 
@@ -2487,7 +2504,7 @@
                     >
                       <Icon 
                         name={item.icon} 
-                        className={`w-5 h-5 ${isActive ? (theme === 'dark' ? 'text-[#00d2d3]' : 'text-indigo-600') : ''}`} 
+                        className={`w-4 h-4 ${isActive ? (theme === 'dark' ? 'text-[#00d2d3]' : 'text-indigo-600') : ''}`} 
                       />
                       <span className={`text-[10px] font-bold mt-1 tracking-tight truncate w-full text-center ${
                         isActive ? (theme === 'dark' ? 'text-[#00d2d3]' : 'text-indigo-600') : ''
@@ -2603,54 +2620,227 @@
 
               {activeTab === 'customers' && currentUser.role !== 'kasir' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
-                  <div className={`p-4 sm:p-6 rounded-3xl border flex justify-between items-center ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
-                    <div><h2 className="text-xl font-black">Pelanggan & Piutang</h2><p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Catatan piutang langganan.</p></div>
-                    <button onClick={() => { setEditingCustomer(null); setCustomerForm({ name: '', phone: '', address: '' }); setIsCustomerModalOpen(true); }} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-3.5 py-2 rounded-2xl text-xs font-bold cursor-pointer">+ Pelanggan</button>
+                  <div className={`p-4 sm:p-6 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                    <div>
+                      <h2 className="text-xl sm:text-2xl font-black">Pelanggan & Piutang</h2>
+                      <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Kelola data pelanggan, total belanja, dan pelunasan piutang aktif.</p>
+                    </div>
+                    <button onClick={() => { setEditingCustomer(null); setCustomerForm({ name: '', phone: '', address: '' }); setIsCustomerModalOpen(true); }} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer hover:brightness-110">
+                      <Icon name="user-plus" className="w-4 h-4"/> + Tambah Pelanggan
+                    </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {customers.map(c => (
-                      <div key={c.id} className={`p-4 rounded-3xl border shadow-sm flex flex-col justify-between ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
-                        <div>
-                          <div className="flex justify-between"><h4 className="font-bold text-sm">{c.name}</h4><span className={`text-[10px] px-2 py-0.5 rounded font-mono ${theme === 'dark' ? 'bg-[#21254d] text-slate-300' : 'bg-slate-100'}`}>{c.phone || '-'}</span></div>
-                          <div className="mt-3 flex justify-between items-center">
-                            <div><p className="text-[10px] text-slate-400">Total Belanja</p><p className="font-bold text-xs">{formatMoney(c.totalSpent)}</p></div>
-                            <div className="text-right"><p className="text-[10px] text-amber-400 font-bold">Piutang</p><p className="font-black text-sm text-[#ff8a3d]">{formatMoney(c.debt)}</p></div>
-                          </div>
-                        </div>
-                        <div className={`flex justify-end gap-2 mt-3 pt-2 border-t ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>
-                          {c.debt > 0 && <button onClick={() => { setPaymentModalCustomer(c); setCustomerPayAmount(c.debt.toString()); }} className="px-3 py-1 bg-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer">Bayar</button>}
-                          <button onClick={() => { setEditingCustomer(c); setCustomerForm(c); setIsCustomerModalOpen(true); }} className={`p-2 rounded-xl cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] text-[#00d2d3]' : 'bg-indigo-50 text-indigo-600'}`}><Icon name="edit" className="w-3.5 h-3.5"/></button>
-                          <button onClick={() => handleDeleteCustomer(c.id)} className="p-2 text-rose-400 bg-rose-500/10 rounded-xl cursor-pointer"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
-                        </div>
+
+                  {/* Kartu Ringkasan Piutang Pelanggan */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className={`p-4 rounded-3xl border flex items-center gap-3.5 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                      <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                        <Icon name="users" className="w-5 h-5"/>
                       </div>
-                    ))}
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total Pelanggan</p>
+                        <p className="text-lg sm:text-xl font-black mt-0.5">{customers.length} Orang</p>
+                      </div>
+                    </div>
+
+                    <div className={`p-4 rounded-3xl border flex items-center gap-3.5 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                        <Icon name="shopping-bag" className="w-5 h-5"/>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total Akumulasi Belanja</p>
+                        <p className="text-lg sm:text-xl font-black text-emerald-400 mt-0.5">{formatMoney(customers.reduce((a, b) => a + (b.totalSpent || 0), 0))}</p>
+                      </div>
+                    </div>
+
+                    <div className={`p-4 rounded-3xl border flex items-center gap-3.5 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-[#ff8a3d] flex items-center justify-center border border-amber-500/30">
+                        <Icon name="credit-card" className="w-5 h-5"/>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total Piutang Aktif (Tempo)</p>
+                        <p className="text-lg sm:text-xl font-black text-[#ff8a3d] mt-0.5">{formatMoney(customers.reduce((a, b) => a + (b.debt || 0), 0))}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Daftar Tabel Pelanggan */}
+                  <div className={`rounded-3xl border overflow-hidden shadow-sm ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60]' : 'bg-white border-slate-200'}`}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[720px] text-xs">
+                        <thead>
+                          <tr className={`border-b uppercase font-bold tracking-wider text-[10px] ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                            <th className="p-3.5">ID / Nama Pelanggan</th>
+                            <th className="p-3.5">Kontak & Alamat</th>
+                            <th className="p-3.5 text-center">Total Trx</th>
+                            <th className="p-3.5 text-right">Total Pembelian</th>
+                            <th className="p-3.5 text-right">Sisa Piutang</th>
+                            <th className="p-3.5 text-center">Aksi / Pelunasan</th>
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${theme === 'dark' ? 'divide-[#2a2f60]' : 'divide-slate-100'}`}>
+                          {customers.length === 0 ? (
+                            <tr><td colSpan="6" className="p-8 text-center text-slate-400">Belum ada data pelanggan tersimpan.</td></tr>
+                          ) : (
+                            customers.map(c => (
+                              <tr key={c.id} className={`transition-colors ${theme === 'dark' ? 'hover:bg-[#21254d]' : 'hover:bg-slate-50'}`}>
+                                <td className="p-3.5">
+                                  <button onClick={() => setViewingCustomer(c)} className="font-extrabold text-sm text-left hover:text-[#00d2d3] flex flex-col cursor-pointer">
+                                    <span>{c.name}</span>
+                                    <span className="text-[10px] font-mono text-slate-400 mt-0.5">{c.id}</span>
+                                  </button>
+                                </td>
+                                <td className="p-3.5 text-slate-400">
+                                  <p className="flex items-center gap-1"><Icon name="phone" className="w-3 h-3 text-[#00d2d3]"/> {c.phone || '-'}</p>
+                                  <p className="flex items-center gap-1 text-[11px] mt-0.5"><Icon name="map-pin" className="w-3 h-3 text-slate-500"/> {c.address || '-'}</p>
+                                </td>
+                                <td className="p-3.5 text-center font-bold">{c.totalTrx || 0}x</td>
+                                <td className="p-3.5 text-right font-extrabold">{formatMoney(c.totalSpent)}</td>
+                                <td className="p-3.5 text-right">
+                                  {c.debt > 0 ? (
+                                    <div>
+                                      <span className="bg-amber-500/20 text-[#ff8a3d] border border-amber-500/30 px-2.5 py-0.5 rounded-full text-xs font-black">{formatMoney(c.debt)}</span>
+                                      <p className="text-[10px] text-amber-400 font-semibold mt-0.5">Belum Lunas</p>
+                                    </div>
+                                  ) : (
+                                    <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px] font-black">LUNAS</span>
+                                  )}
+                                </td>
+                                <td className="p-3.5 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    {c.debt > 0 && (
+                                      <button onClick={() => { setPaymentModalCustomer(c); setCustomerPayAmount(c.debt.toString()); }} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-sm">
+                                        Bayar
+                                      </button>
+                                    )}
+                                    <button onClick={() => setViewingCustomer(c)} className={`p-1.5 rounded-xl border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-300' : 'bg-slate-100 text-slate-700'}`} title="Lihat Riwayat"><Icon name="eye" className="w-3.5 h-3.5"/></button>
+                                    <button onClick={() => { setEditingCustomer(c); setCustomerForm(c); setIsCustomerModalOpen(true); }} className={`p-1.5 rounded-xl border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-[#00d2d3]' : 'bg-indigo-50 text-indigo-600'}`} title="Edit"><Icon name="edit" className="w-3.5 h-3.5"/></button>
+                                    <button onClick={() => handleDeleteCustomer(c.id)} className="p-1.5 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl cursor-pointer" title="Hapus"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
 
               {activeTab === 'suppliers' && currentUser.role === 'owner' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
-                  <div className={`p-4 sm:p-6 rounded-3xl border flex justify-between items-center ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
-                    <div><h2 className="text-xl font-black">Supplier & Hutang Usaha</h2><p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Daftar vendor toko.</p></div>
-                    <button onClick={() => { setEditingSupplier(null); setSupplierForm({ name: '', contactPerson: '', phone: '', address: '' }); setIsSupplierModalOpen(true); }} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-3.5 py-2 rounded-2xl text-xs font-bold cursor-pointer">+ Supplier</button>
+                  <div className={`p-4 sm:p-6 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                    <div>
+                      <h2 className="text-xl sm:text-2xl font-black">Supplier & Hutang Usaha</h2>
+                      <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Daftar vendor toko, produk yang disuplai, dan pelunasan hutang.</p>
+                    </div>
+                    <button onClick={() => { setEditingSupplier(null); setSupplierForm({ name: '', contactPerson: '', phone: '', address: '' }); setIsSupplierModalOpen(true); }} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-1.5 shadow-md cursor-pointer hover:brightness-110">
+                      <Icon name="truck" className="w-4 h-4"/> + Tambah Supplier
+                    </button>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {suppliers.map(s => (
-                      <div key={s.id} className={`p-4 rounded-3xl border shadow-sm flex flex-col justify-between ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
-                        <div>
-                          <div className="flex justify-between"><h4 className="font-bold text-sm">{s.name}</h4><span className="text-[10px] text-slate-400 font-semibold">{s.phone || '-'}</span></div>
-                          <div className="mt-3 flex justify-between items-center">
-                            <div><p className="text-[10px] text-slate-400">Total Beli</p><p className="font-bold text-xs">{formatMoney(s.totalPurchases)}</p></div>
-                            <div className="text-right"><p className="text-[10px] text-amber-400 font-bold">Hutang Toko</p><p className="font-black text-sm text-[#ff8a3d]">{formatMoney(s.debt)}</p></div>
-                          </div>
-                        </div>
-                        <div className={`flex justify-end gap-2 mt-3 pt-2 border-t ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>
-                          {s.debt > 0 && <button onClick={() => { setPaymentModalSupplier(s); setSupplierPayAmount(s.debt.toString()); }} className="px-3 py-1 bg-emerald-600 text-white rounded-xl text-xs font-bold cursor-pointer">Bayar</button>}
-                          <button onClick={() => { setEditingSupplier(s); setSupplierForm(s); setIsSupplierModalOpen(true); }} className={`p-2 rounded-xl cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] text-[#00d2d3]' : 'bg-indigo-50 text-indigo-600'}`}><Icon name="edit" className="w-3.5 h-3.5"/></button>
-                          <button onClick={() => handleDeleteSupplier(s.id)} className="p-2 text-rose-400 bg-rose-500/10 rounded-xl cursor-pointer"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
-                        </div>
+
+                  {/* Kartu Ringkasan Hutang Supplier */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className={`p-4 rounded-3xl border flex items-center gap-3.5 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                      <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-500/30">
+                        <Icon name="truck" className="w-5 h-5"/>
                       </div>
-                    ))}
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total Supplier</p>
+                        <p className="text-lg sm:text-xl font-black mt-0.5">{suppliers.length} Vendor</p>
+                      </div>
+                    </div>
+
+                    <div className={`p-4 rounded-3xl border flex items-center gap-3.5 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                      <div className="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/30">
+                        <Icon name="banknote" className="w-5 h-5"/>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total Pembelian Stok</p>
+                        <p className="text-lg sm:text-xl font-black text-emerald-400 mt-0.5">{formatMoney(suppliers.reduce((a, b) => a + (b.totalPurchases || 0), 0))}</p>
+                      </div>
+                    </div>
+
+                    <div className={`p-4 rounded-3xl border flex items-center gap-3.5 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                      <div className="w-10 h-10 rounded-2xl bg-amber-500/20 text-[#ff8a3d] flex items-center justify-center border border-amber-500/30">
+                        <Icon name="credit-card" className="w-5 h-5"/>
+                      </div>
+                      <div>
+                        <p className="text-[10px] text-slate-400 uppercase font-bold">Total Hutang Usaha Toko</p>
+                        <p className="text-lg sm:text-xl font-black text-[#ff8a3d] mt-0.5">{formatMoney(suppliers.reduce((a, b) => a + (b.debt || 0), 0))}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Tabel Supplier */}
+                  <div className={`rounded-3xl border overflow-hidden shadow-sm ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60]' : 'bg-white border-slate-200'}`}>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[750px] text-xs">
+                        <thead>
+                          <tr className={`border-b uppercase font-bold tracking-wider text-[10px] ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-slate-400' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                            <th className="p-3.5">ID / Nama Supplier</th>
+                            <th className="p-3.5">Kontak & Alamat</th>
+                            <th className="p-3.5">Produk Disuplai</th>
+                            <th className="p-3.5 text-right">Total Pembelian</th>
+                            <th className="p-3.5 text-right">Hutang Aktif</th>
+                            <th className="p-3.5 text-center">Aksi / Bayar</th>
+                          </tr>
+                        </thead>
+                        <tbody className={`divide-y ${theme === 'dark' ? 'divide-[#2a2f60]' : 'divide-slate-100'}`}>
+                          {suppliers.length === 0 ? (
+                            <tr><td colSpan="6" className="p-8 text-center text-slate-400">Belum ada data supplier tersimpan.</td></tr>
+                          ) : (
+                            suppliers.map(s => {
+                              const suppliedProducts = products.filter(p => p.supplier && p.supplier.toLowerCase().includes(s.name.toLowerCase()));
+                              return (
+                                <tr key={s.id} className={`transition-colors ${theme === 'dark' ? 'hover:bg-[#21254d]' : 'hover:bg-slate-50'}`}>
+                                  <td className="p-3.5">
+                                    <p className="font-extrabold text-sm">{s.name}</p>
+                                    <p className="text-[10px] font-mono text-slate-400 mt-0.5">{s.id}</p>
+                                    <p className="text-[11px] text-slate-400 mt-0.5">CP: {s.contactPerson || '-'}</p>
+                                  </td>
+                                  <td className="p-3.5 text-slate-400">
+                                    <p className="flex items-center gap-1"><Icon name="phone" className="w-3 h-3 text-[#00d2d3]"/> {s.phone || '-'}</p>
+                                    <p className="flex items-center gap-1 text-[11px] mt-0.5"><Icon name="map-pin" className="w-3 h-3 text-slate-500"/> {s.address || '-'}</p>
+                                  </td>
+                                  <td className="p-3.5">
+                                    <div className="flex flex-wrap gap-1 max-w-[200px]">
+                                      {suppliedProducts.length > 0 ? suppliedProducts.map(p => (
+                                        <span key={p.id} className={`text-[10px] px-2 py-0.5 rounded-md font-bold ${theme === 'dark' ? 'bg-[#21254d] text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}>
+                                          {p.name}
+                                        </span>
+                                      )) : <span className="text-slate-500 text-[11px]">-</span>}
+                                    </div>
+                                  </td>
+                                  <td className="p-3.5 text-right font-extrabold">{formatMoney(s.totalPurchases)}</td>
+                                  <td className="p-3.5 text-right">
+                                    {s.debt > 0 ? (
+                                      <div>
+                                        <span className="bg-amber-500/20 text-[#ff8a3d] border border-amber-500/30 px-2.5 py-0.5 rounded-full text-xs font-black">{formatMoney(s.debt)}</span>
+                                        <p className="text-[10px] text-amber-400 font-semibold mt-0.5">Belum Lunas</p>
+                                      </div>
+                                    ) : (
+                                      <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px] font-black">LUNAS</span>
+                                    )}
+                                  </td>
+                                  <td className="p-3.5 text-center">
+                                    <div className="flex items-center justify-center gap-1.5">
+                                      {s.debt > 0 && (
+                                        <button onClick={() => { setPaymentModalSupplier(s); setSupplierPayAmount(s.debt.toString()); }} className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-sm">
+                                          Bayar
+                                        </button>
+                                      )}
+                                      <button onClick={() => { setEditingSupplier(s); setSupplierForm(s); setIsSupplierModalOpen(true); }} className={`p-1.5 rounded-xl border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-[#00d2d3]' : 'bg-indigo-50 text-indigo-600'}`} title="Edit"><Icon name="edit" className="w-3.5 h-3.5"/></button>
+                                      <button onClick={() => handleDeleteSupplier(s.id)} className="p-1.5 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl cursor-pointer" title="Hapus"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </div>
               )}
@@ -2854,126 +3044,129 @@
             </div>
           )}
 
-          {/* Modal Scanner Kamera Barcode */}
-          {scannerModal.isOpen && (
-            <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 animate-in fade-in duration-200">
-              <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col max-h-[92vh]">
-                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center bg-[#181b3b] text-white shrink-0">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-xl bg-cyan-500/20 text-[#00d2d3] flex items-center justify-center border border-cyan-500/30">
-                      <Icon name="camera" className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-black text-sm">
-                        {scannerModal.target === 'pos' ? 'Live Barcode Scanner' : 'Scan Barcode Produk'}
-                      </h3>
-                      <p className="text-[10px] text-slate-400">Arahkan barcode ke kotak bidik laser</p>
-                    </div>
+          {/* Modal Riwayat & Detail Pelanggan */}
+          {viewingCustomer && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+              <div className={`rounded-3xl w-full max-w-lg p-6 space-y-4 border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
+                <div className="flex justify-between items-center pb-3 border-b border-[#2a2f60]">
+                  <h3 className="font-black text-sm flex items-center gap-2">
+                    <Icon name="users" className="w-4 h-4 text-[#00d2d3]"/> Profil & Riwayat Pelanggan
+                  </h3>
+                  <button onClick={() => setViewingCustomer(null)} className="cursor-pointer">
+                    <Icon name="x" className="w-5 h-5 text-slate-400" />
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 text-white font-black text-base flex items-center justify-center">
+                    {viewingCustomer.name.substring(0, 2).toUpperCase()}
                   </div>
-                  <button onClick={closeScannerModal} className="p-2 bg-[#21254d] hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl transition-colors cursor-pointer">
-                    <Icon name="x" className="w-5 h-5"/>
+                  <div>
+                    <h4 className="font-black text-base">{viewingCustomer.name}</h4>
+                    <p className="text-[11px] font-mono text-slate-400">{viewingCustomer.id} • {viewingCustomer.phone || 'Tanpa No. HP'}</p>
+                  </div>
+                </div>
+
+                <div className={`p-3.5 rounded-2xl border text-xs space-y-1.5 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                  <p className="text-[10px] text-slate-400 uppercase font-bold">Alamat Lengkap:</p>
+                  <p className="font-semibold">{viewingCustomer.address || 'Belum ada alamat tercatat'}</p>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2.5 text-center text-xs">
+                  <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                    <p className="text-[10px] text-slate-400 font-bold">Total Transaksi</p>
+                    <p className="font-black text-base mt-0.5">{viewingCustomer.totalTrx || 0}x</p>
+                  </div>
+                  <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                    <p className="text-[10px] text-slate-400 font-bold">Total Belanja</p>
+                    <p className="font-black text-sm text-[#00d2d3] mt-0.5">{formatMoney(viewingCustomer.totalSpent)}</p>
+                  </div>
+                  <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                    <p className="text-[10px] text-slate-400 font-bold">Sisa Piutang</p>
+                    <p className="font-black text-sm text-[#ff8a3d] mt-0.5">{formatMoney(viewingCustomer.debt)}</p>
+                  </div>
+                </div>
+
+                {viewingCustomer.debt > 0 && (
+                  <button 
+                    onClick={() => {
+                      const targetCust = viewingCustomer;
+                      setViewingCustomer(null);
+                      setPaymentModalCustomer(targetCust);
+                      setCustomerPayAmount(targetCust.debt.toString());
+                    }} 
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-2xl shadow-md cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <Icon name="credit-card" className="w-4 h-4"/>
+                    <span>Bayar / Lunasi Piutang ({formatMoney(viewingCustomer.debt)})</span>
                   </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Modal Tahan Pesanan (Save Draft) */}
+          {showDraftSaveModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+              <div className={`rounded-3xl w-full max-w-sm p-6 space-y-4 border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
+                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Tahan Pesanan Saat Ini</h3><button onClick={() => setShowDraftSaveModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Nama Pelanggan / Nomor Meja *</label>
+                    <input type="text" autoFocus placeholder="Misal: Bapak Budi / Meja 04" value={draftNameInput} onChange={(e) => setDraftNameInput(e.target.value)} className={`w-full p-3 border rounded-xl outline-none font-bold text-xs ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} />
+                  </div>
+                  <button onClick={saveDraft} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl text-xs shadow-md cursor-pointer">Simpan & Tahan Pesanan</button>
                 </div>
+              </div>
+            </div>
+          )}
 
-                <div id="scanner-video-container" className="relative bg-black w-full aspect-[3/4] sm:aspect-[4/3] flex items-center justify-center overflow-hidden">
-                  <div id="scanner-reader" className="w-full h-full"></div>
-
-                  {scannerModal.isLoadingCamera && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0f1228] text-white z-20 gap-2">
-                      <div className="w-9 h-9 border-2 border-cyan-500/30 border-t-[#00d2d3] rounded-full animate-spin"></div>
-                      <p className="text-xs text-slate-300 font-bold">Menghubungkan ke kamera HP...</p>
-                    </div>
-                  )}
-
-                  {!scannerModal.isLoadingCamera && !scannerModal.errorMsg && (
-                    <div className="absolute inset-0 pointer-events-none flex items-center justify-center p-6 z-20">
-                      <div className="relative w-64 h-44 border-2 border-[#00d2d3]/80 rounded-2xl overflow-hidden shadow-2xl">
-                        <div className="scanner-laser-line"></div>
-                        <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-[#00d2d3] rounded-tl-lg"></div>
-                        <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-[#00d2d3] rounded-tr-lg"></div>
-                        <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-[#00d2d3] rounded-bl-lg"></div>
-                        <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-[#00d2d3] rounded-br-lg"></div>
-                      </div>
-                    </div>
-                  )}
-
-                  {scannerModal.errorMsg && (
-                    <div className="absolute inset-3 bg-[#0f1228]/95 border border-slate-700 rounded-2xl p-4 flex flex-col items-center justify-center text-center z-30 space-y-3">
-                      <div className="w-10 h-10 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center">
-                        <Icon name="alert-triangle" className="w-5 h-5" />
-                      </div>
-                      <p className="text-[11px] text-slate-300 max-w-[280px]">{scannerModal.errorMsg}</p>
-                    </div>
-                  )}
-                </div>
-
-                <div className="p-4 bg-[#181b3b] border-t border-[#2a2f60] text-white space-y-3 shrink-0">
-                  {scannerModal.feedback ? (
-                    <div className={`p-3 rounded-2xl border text-xs flex items-start gap-3 animate-in zoom-in duration-200 shadow-xl ${
-                      scannerModal.feedback.type === 'error'
-                        ? 'bg-rose-950/90 border-rose-500 text-rose-200'
-                        : scannerModal.feedback.type === 'warning'
-                        ? 'bg-amber-950/90 border-amber-500 text-amber-200'
-                        : 'bg-emerald-950/90 border-emerald-500 text-emerald-200'
-                    }`}>
-                      <div className={`p-2 rounded-xl shrink-0 mt-0.5 ${
-                        scannerModal.feedback.type === 'error' 
-                          ? 'bg-rose-500/20 text-rose-400' 
-                          : scannerModal.feedback.type === 'warning' 
-                          ? 'bg-amber-500/20 text-amber-400' 
-                          : 'bg-emerald-500/20 text-emerald-400'
-                      }`}>
-                        <Icon name={scannerModal.feedback.type === 'error' ? 'alert-triangle' : scannerModal.feedback.type === 'warning' ? 'alert-circle' : 'check-circle'} className="w-5 h-5" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-2 flex-wrap">
-                          <p className="font-black text-xs sm:text-sm tracking-tight">{scannerModal.feedback.title}</p>
-                          {scannerModal.feedback.scanCount !== undefined && (
-                            <span className="bg-emerald-400 text-slate-950 font-black px-2 py-0.5 rounded-lg text-xs shadow-md animate-bounce flex items-center gap-1">
-                              <span>{scannerModal.feedback.countLabel || 'Di Keranjang'}:</span>
-                              <span className="text-sm font-black underline">{scannerModal.feedback.scanCount}x</span>
-                            </span>
-                          )}
+          {/* Modal Daftar Pesanan Tertahan (Draft List) */}
+          {showDraftListModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+              <div className={`rounded-3xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
+                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center"><h3 className="font-black text-sm flex items-center gap-1.5"><Icon name="folder" className="w-4 h-4 text-[#00d2d3]"/> Pesanan Tertahan (Draft)</h3><button onClick={() => setShowDraftListModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className="p-4 flex-1 overflow-y-auto space-y-2.5 text-xs">
+                  {draftOrders.length === 0 ? (<p className="text-center py-8 text-slate-400">Belum ada pesanan yang ditahan.</p>) : (
+                    draftOrders.map(d => (
+                      <div key={d.id} className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                        <div>
+                          <p className="font-extrabold text-sm">{d.name}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">{d.cart.length} macam barang • {d.date}</p>
                         </div>
-                        <p className="text-[11px] opacity-90 mt-1 leading-snug">{scannerModal.feedback.desc}</p>
-                        {scannerModal.feedback.subtotalItem && (
-                          <p className="text-[11px] text-cyan-300 font-extrabold mt-0.5">
-                            Total: {scannerModal.feedback.subtotalItem}
-                          </p>
-                        )}
-                        <p className="text-[10px] font-mono opacity-70 mt-1">Barcode: {scannerModal.feedback.code}</p>
-                        
-                        {scannerModal.feedback.action === 'create_product' && (
-                          <button
-                            onClick={() => {
-                              const codeToRegister = scannerModal.feedback.code;
-                              closeScannerModal();
-                              setEditingProduct(null);
-                              setProductForm({ sku: codeToRegister, name: '', costPrice: '', price: '', packPrice: '', stock: 1, category: 'Umum', supplier: '' });
-                              setIsProductModalOpen(true);
-                            }}
-                            className="mt-2.5 px-3.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black flex items-center gap-1.5 shadow-md transition-all cursor-pointer active:scale-95"
-                          >
-                            <Icon name="plus" className="w-3.5 h-3.5" />
-                            <span>+ Daftarkan Barang Baru Ini</span>
-                          </button>
-                        )}
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => { setDraftOrders(draftOrders.filter(item => item.id !== d.id)); showToast('Draft pesanan dihapus'); }} className="p-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl cursor-pointer"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
+                          <button onClick={() => loadDraft(d)} className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold cursor-pointer shadow-md">Buka</button>
+                        </div>
                       </div>
-                    </div>
-                  ) : scannerModal.lastScanned ? (
-                    <div className="p-2 bg-cyan-950/80 border border-cyan-700 text-[#00d2d3] rounded-xl text-center text-xs font-bold animate-in zoom-in">
-                      ⚡ Terdeteksi: <span className="font-mono text-white ml-1">{scannerModal.lastScanned}</span>
-                    </div>
-                  ) : (
-                    <div className="p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-center text-[11px] text-slate-400 flex items-center justify-center gap-2">
-                      <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
-                      <span>Arahkan barcode barang tepat ke kotak bidik laser</span>
-                    </div>
+                    ))
                   )}
+                </div>
+              </div>
+            </div>
+          )}
 
-                  <button onClick={closeScannerModal} className="w-full py-2.5 bg-[#21254d] hover:bg-slate-700 text-slate-300 text-xs font-bold rounded-xl cursor-pointer">
-                    Selesai / Tutup Scanner
-                  </button>
+          {/* Modal Diskon Total Transaksi */}
+          {showDiscountModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+              <div className={`rounded-3xl w-full max-w-xs p-5 space-y-3 border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
+                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Beri Diskon Total</h3><button onClick={() => setShowDiscountModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Persentase Diskon (%)</label>
+                    <input type="number" autoFocus min="0" max="100" placeholder="0 - 100" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} className={`w-full p-3 border rounded-xl text-center text-xl font-black outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-[#00d2d3]' : 'bg-slate-50'}`} />
+                  </div>
+                  <button onClick={() => {
+                    const val = parseInt(discountInput, 10);
+                    if (val >= 0 && val <= 100) {
+                      setDiscount(val);
+                      setShowDiscountModal(false);
+                      setDiscountInput('');
+                      showToast(`Diskon ${val}% diterapkan pada nota`);
+                    } else {
+                      showToast('Masukkan angka diskon 0 - 100%', 'error');
+                    }
+                  }} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl text-xs shadow-md cursor-pointer">Terapkan Diskon</button>
                 </div>
               </div>
             </div>
