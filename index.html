@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>POSPro - Sistem Kasir & Manajemen Toko Berlisensi</title>
+  <title>POSPro - Sistem Kasir Berlisensi & Cloud Sync</title>
   
   <!-- Tailwind CSS & Konfigurasi Tema -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -30,7 +30,7 @@
     }
   </script>
 
-  <!-- Pustaka React, Lucide Icon, Html5Qrcode Scanner, & MQTT Realtime Sync -->
+  <!-- Pustaka React, Lucide, Html5Qrcode, dan MQTT Client -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -110,12 +110,84 @@
     const { useState, useEffect, useMemo, useRef, useCallback, Component } = React;
 
     // =========================================================================
-    // ⚙️ KONFIGURASI BACKEND GOOGLE APPS SCRIPT
+    // ⚙️ KONFIGURASI BACKEND GOOGLE APPS SCRIPT (GOOGLE SHEETS LISENSI)
     // =========================================================================
+    // Tempelkan URL Web App Google Apps Script Anda (yang berakhiran /exec) di bawah ini:
     const GOOGLE_SCRIPT_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxuFSxfNHcc3t4pc2a_vKH-dEwGjTUfrgmv6o5hESpPBySkSf0Ju8FWNHrz-edH9gc/exec";
+    
+    // Kunci token pengaman komunikasi antara Web Vercel & Google Script Anda
     const APP_SECRET_TOKEN = "POSPRO_SECURITY_KEY_2026_X9";
 
-    // Komponen Penangkap Kesalahan Runtime (ErrorBoundary)
+    // Kunci Rahasia Cadangan (Fallback Offline Hash)
+    const MASTER_LICENSE_SECRET = "POSPRO_SECRET_KEY_DEV_9824X";
+
+    // Helper normalisasi nama toko agar toleran terhadap spasi dan huruf besar/kecil
+    const normalizeStoreName = (name) => {
+      return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
+    // Hash Helper untuk memvalidasi Lisensi Key yang TERKUNCI pada Nama Toko (Fallback Offline)
+    const generateLicenseChecksum = (storeName, durationCode, serial) => {
+      const normName = normalizeStoreName(storeName);
+      const combined = `${normName}::${durationCode}::${serial}::${MASTER_LICENSE_SECRET}`;
+      let hash = 0;
+      for (let i = 0; i < combined.length; i++) {
+        const char = combined.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      return Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(-4);
+    };
+
+    // Fungsi Validasi Kode Lisensi Offline (Digunakan jika Google Script URL belum diisi)
+    const verifyLicenseKeyOffline = (rawKey, storeName) => {
+      if (!storeName || !storeName.trim()) {
+        return { valid: false, message: 'Nama Pemilik / Toko wajib diisi untuk verifikasi lisensi!' };
+      }
+      if (!rawKey) return { valid: false, message: 'Kode lisensi tidak boleh kosong.' };
+      
+      const cleanKey = rawKey.trim().toUpperCase();
+      const parts = cleanKey.split('-');
+      
+      if (parts.length !== 4 || parts[0] !== 'POS') {
+        return { valid: false, message: 'Format lisensi salah. Contoh format: POS-30D-XXXXX-YYYY' };
+      }
+
+      const [prefix, durationCode, serial, checksum] = parts;
+      const expectedChecksum = generateLicenseChecksum(storeName, durationCode, serial);
+
+      if (checksum !== expectedChecksum) {
+        return { 
+          valid: false, 
+          message: `Kode Lisensi TIDAK COCOK untuk nama toko "${storeName.trim()}". Kode ini terkunci untuk toko lain atau tidak valid!` 
+        };
+      }
+
+      let days = 0;
+      let label = '';
+      if (durationCode === 'LIFE') {
+        days = 99999;
+        label = 'Permanen (Lifetime)';
+      } else if (durationCode.endsWith('D')) {
+        days = parseInt(durationCode.replace('D', ''), 10);
+        label = `${days} Hari`;
+        if (isNaN(days) || days <= 0) {
+          return { valid: false, message: 'Durasi lisensi tidak valid.' };
+        }
+      } else {
+        return { valid: false, message: 'Tipe durasi lisensi tidak dikenali.' };
+      }
+
+      return {
+        valid: true,
+        key: cleanKey,
+        durationDays: days,
+        durationLabel: label,
+        serial: serial,
+        storeName: storeName.trim()
+      };
+    };
+
     class ErrorBoundary extends Component {
       constructor(props) {
         super(props);
@@ -135,8 +207,8 @@
                 <div className="w-14 h-14 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto">
                   <i data-lucide="alert-triangle" className="w-8 h-8"></i>
                 </div>
-                <h2 className="text-lg font-black text-white">Memuat Ulang POSPro</h2>
-                <p className="text-xs text-slate-400">Data kasir Anda tersimpan dengan aman. Klik tombol di bawah untuk memuat ulang.</p>
+                <h2 className="text-lg font-black text-white">Memuat Ulang Sistem Kasir</h2>
+                <p className="text-xs text-slate-400">Data Anda tersimpan dengan aman. Klik tombol di bawah untuk memuat ulang.</p>
                 <button 
                   onClick={() => window.location.reload()} 
                   className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs shadow-lg transition-all cursor-pointer"
@@ -151,7 +223,6 @@
       }
     }
 
-    // Helper Ikon Lucide
     const Icon = ({ name, className = "w-5 h-5", title }) => {
       const iconRef = useRef(null);
       useEffect(() => {
@@ -165,7 +236,6 @@
       return <span ref={iconRef} className={`lucide-icon shrink-0 ${className}`} title={title || name} />;
     };
 
-    // Helper Format Mata Uang dan Tanggal
     const generateId = () => Math.random().toString(36).substr(2, 9);
     const formatMoney = (amount) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', minimumFractionDigits: 0 }).format(amount || 0);
 
@@ -182,7 +252,6 @@
       }
     };
 
-    // Audio beep untuk pemindai barcode
     const playScanBeep = () => {
       try {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -202,9 +271,8 @@
       } catch (e) {}
     };
 
-    // Data Bawaan / Master Template
     const defaultSettings = {
-      name: 'Toko Saya', tagline: 'Sistem Kasir Pintar & Terlisensi', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
+      name: 'Toko Saya', tagline: 'Sistem Kasir Cloud Sync', phone: '081234567890', address: 'Jl. Bisnis Sukses No. 88',
       receiptFooter: 'Terima kasih atas kunjungan Anda!\nBarang yang dibeli tidak dapat ditukar.', invoicePrefix: 'INV-', taxPercent: 0, defaultDiscount: 0, currency: 'IDR',
       paymentMethods: ['Cash', 'Debit', 'Transfer', 'QRIS', 'E-wallet', 'Hutang']
     };
@@ -215,6 +283,16 @@
       { id: '3', sku: 'BRG-003', name: 'Es Teh Manis Jumbo', costPrice: 2500, price: 6000, packPrice: 0, stock: 80, category: 'Minuman', supplier: 'PT. Sumber Segar' },
       { id: '4', sku: 'BRG-004', name: 'Roti Bakar Coklat Keju', costPrice: 10000, price: 17000, packPrice: 0, stock: 15, category: 'Makanan', supplier: 'Bakery Prima' },
       { id: '5', sku: 'BRG-005', name: 'Keripik Kentang Renyah', costPrice: 6000, price: 10000, packPrice: 0, stock: 35, category: 'Snack', supplier: 'Sentra Camilan' }
+    ];
+
+    const demoTransactions = [
+      {
+        id: 'INV-829104',
+        date: new Date().toLocaleString('id-ID'),
+        items: [{ product: defaultProducts[0], qty: 2, discountRp: 0 }, { product: defaultProducts[1], qty: 1, discountRp: 0 }],
+        subtotal: 61000, discount: 0, tax: 0, total: 61000, cash: 100000, change: 39000, paymentMethod: 'Cash',
+        customerName: 'Pelanggan Umum', cashier: 'Kasir Utama'
+      }
     ];
 
     const loadFromLocal = (key, fallback) => {
@@ -232,30 +310,30 @@
       } catch (e) {}
     };
 
+    const generateStoreSyncKey = (email, password) => {
+      const combined = `${email.trim().toLowerCase()}::${password.trim()}`;
+      let hash = 0;
+      for (let i = 0; i < combined.length; i++) {
+        const char = combined.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      return `pospro_vault_${Math.abs(hash).toString(36)}`;
+    };
+
     function App() {
-      // 1. STATE LISENSI GOOGLE SHEETS
-      const [licenseData, setLicenseData] = useState(() => loadFromLocal('pospro_cloud_license', null));
+      // 1. STATE LISENSI APLIKASI
+      const [licenseData, setLicenseData] = useState(() => loadFromLocal('pospro_active_license', null));
       const [licenseInputKey, setLicenseInputKey] = useState('');
-      const [licenseStoreName, setLicenseStoreName] = useState('');
+      const [licenseOwnerName, setLicenseOwnerName] = useState('');
       const [licenseError, setLicenseError] = useState('');
-      const [isVerifyingLicense, setIsVerifyingLicense] = useState(false);
-      const [showExtendModal, setShowExtendModal] = useState(false);
-      const [extendInputKey, setExtendInputKey] = useState('');
-      const [isExtendingLicense, setIsExtendingLicense] = useState(false);
+      const [showExtendLicenseModal, setShowExtendLicenseModal] = useState(false);
 
-      // Multi-tenant Isolation Prefix berdasarkan Vault ID Lisensi
-      const userStoragePrefix = useMemo(() => {
-        if (!licenseData || !licenseData.vaultId) return 'pospro_default_vault';
-        return `pospro_vault_${licenseData.vaultId}`;
-      }, [licenseData]);
-
-      // Status Validitas & Sisa Hari Lisensi
+      // Hitung Sisa Waktu Lisensi
       const licenseStatus = useMemo(() => {
-        if (!licenseData) return { isActivated: false, isExpired: true, daysRemaining: 0, label: 'Belum Terdaftar' };
+        if (!licenseData) return { isActivated: false, isExpired: true, daysRemaining: 0 };
         if (licenseData.isDemo) return { isActivated: true, isDemo: true, isExpired: false, daysRemaining: 999, label: 'Mode Uji Coba (Demo)' };
-        if (licenseData.durationDays >= 9999 || licenseData.isLifetime) {
-          return { isActivated: true, isLifetime: true, isExpired: false, daysRemaining: 99999, label: 'Aktif Selamanya (Lifetime)' };
-        }
+        if (licenseData.isLifetime) return { isActivated: true, isLifetime: true, isExpired: false, daysRemaining: 99999, label: 'Aktif Selamanya (Lifetime)' };
 
         const now = Date.now();
         const expiry = new Date(licenseData.expiresAt).getTime();
@@ -267,11 +345,27 @@
           isExpired: daysLeft <= 0,
           daysRemaining: Math.max(0, daysLeft),
           expiryDateStr: new Date(licenseData.expiresAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' }),
-          label: daysLeft > 0 ? `${daysLeft} Hari Lagi (s/d ${new Date(licenseData.expiresAt).toLocaleDateString('id-ID')})` : 'Lisensi Telah Kedaluwarsa'
+          label: daysLeft > 0 ? `${daysLeft} Hari Lagi (s/d ${new Date(licenseData.expiresAt).toLocaleDateString('id-ID')})` : 'Lisensi Telah Berakhir'
         };
       }, [licenseData]);
 
+      // Sesi Akun Pengguna otomatis terikat ke Lisensi Key
+      const isDemoUser = licenseData?.isDemo === true;
+      const syncKey = useMemo(() => {
+        if (!licenseData) return 'guest';
+        if (licenseData.isDemo) return 'demo_vault';
+        return `lic_${licenseData.vaultId || licenseData.serial || generateStoreSyncKey(licenseData.key, MASTER_LICENSE_SECRET)}`;
+      }, [licenseData]);
+
+      const userStoragePrefix = `pospro_data_${syncKey}`;
+      
+      const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+      const [lastSyncTime, setLastSyncTime] = useState(null);
+      const [syncStatusMsg, setSyncStatusMsg] = useState('Cloud Siap Terhubung');
       const [theme, setTheme] = useState(() => loadFromLocal('pospro_theme', 'dark'));
+      const [isVerifyingLicense, setIsVerifyingLicense] = useState(false);
+      const [isExtendingLicense, setIsExtendingLicense] = useState(false);
+      const [extendLicenseKeyInput, setExtendLicenseKeyInput] = useState('');
 
       useEffect(() => {
         const root = document.documentElement;
@@ -314,49 +408,259 @@
       const [authModal, setAuthModal] = useState({ show: false, targetRole: null, password: '' });
       const [rolePasswords, setRolePasswords] = useState(() => loadFromLocal(`${userStoragePrefix}_passwords`, { owner: 'owner123', admin: 'admin123' }));
 
-      // Data Toko & Produk Terisolasi per Akun/Lisensi
       const [storeSettings, setStoreSettings] = useState(() => {
         const saved = loadFromLocal(`${userStoragePrefix}_settings`, null);
         if (saved) return saved;
-        return { ...defaultSettings, name: licenseData?.storeName || 'Toko Saya' };
+        return isDemoUser ? { ...defaultSettings, name: 'Toko Demo POSPro' } : { ...defaultSettings, name: licenseData?.ownerName || 'Toko Saya' };
       });
 
       const [products, setProducts] = useState(() => {
-        return loadFromLocal(`${userStoragePrefix}_products`, defaultProducts);
+        const saved = loadFromLocal(`${userStoragePrefix}_products`, null);
+        if (saved) return saved;
+        return defaultProducts;
       });
 
       const [transactions, setTransactions] = useState(() => {
-        return loadFromLocal(`${userStoragePrefix}_transactions`, []);
+        const saved = loadFromLocal(`${userStoragePrefix}_transactions`, null);
+        if (saved) return saved;
+        return isDemoUser ? demoTransactions : [];
       });
 
       const [draftOrders, setDraftOrders] = useState(() => loadFromLocal(`${userStoragePrefix}_drafts`, []));
       const [customers, setCustomers] = useState(() => {
-        return loadFromLocal(`${userStoragePrefix}_customers`, [
-          { id: 'CUST-001', name: 'Pelanggan Tetap', phone: '081298765432', address: 'Kota', totalTrx: 0, totalSpent: 0, debt: 0 }
-        ]);
+        const saved = loadFromLocal(`${userStoragePrefix}_customers`, null);
+        if (saved) return saved;
+        return isDemoUser ? [
+          { id: 'CUST-001', name: 'Budi Santoso', phone: '081298765432', address: 'Jakarta Selatan', totalTrx: 1, totalSpent: 38000, debt: 0 }
+        ] : [];
       });
 
       const [suppliers, setSuppliers] = useState(() => {
-        return loadFromLocal(`${userStoragePrefix}_suppliers`, [
-          { id: 'SUP-001', name: 'PT. Kopi Nusantara', contactPerson: 'Hendra', phone: '0811223344', address: 'Jakarta', totalPurchases: 0, debt: 0 }
-        ]);
+        const saved = loadFromLocal(`${userStoragePrefix}_suppliers`, null);
+        if (saved) return saved;
+        return isDemoUser ? [
+          { id: 'SUP-001', name: 'PT. Kopi Nusantara', contactPerson: 'Hendra', phone: '0811223344', address: 'Jakarta', totalPurchases: 540000, debt: 0 }
+        ] : [];
       });
 
       const [expenses, setExpenses] = useState(() => {
-        return loadFromLocal(`${userStoragePrefix}_expenses`, [
-          { id: 'EXP-101', date: new Date().toLocaleDateString('id-ID'), category: 'Listrik', amount: 50000, note: 'Token Listrik Awal' }
-        ]);
+        const saved = loadFromLocal(`${userStoragePrefix}_expenses`, null);
+        if (saved) return saved;
+        return isDemoUser ? [
+          { id: 'EXP-101', date: new Date().toLocaleDateString('id-ID'), category: 'Listrik', amount: 150000, note: 'Token Listrik Toko' }
+        ] : [];
       });
 
       const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
       const fileInputRef = useRef(null);
-      const [syncStatusMsg, setSyncStatusMsg] = useState('Data Tersimpan');
-      const [lastSyncTime, setLastSyncTime] = useState(null);
       const isRemoteUpdatingRef = useRef(false);
       const lastSavedStateRef = useRef(null);
       const lastLocalUpdateTimestampRef = useRef(loadFromLocal(`${userStoragePrefix}_last_ts`, 0));
       const mqttClientRef = useRef(null);
       const deviceIdRef = useRef(Math.random().toString(36).substring(7));
+
+      const loadStoreDataFromLocal = useCallback((prefix, ownerName = '') => {
+        const savedSettings = loadFromLocal(`${prefix}_settings`, null) || { ...defaultSettings, name: ownerName || 'Toko Saya' };
+        const savedProducts = loadFromLocal(`${prefix}_products`, defaultProducts);
+        const savedTrx = loadFromLocal(`${prefix}_transactions`, []);
+        const savedCust = loadFromLocal(`${prefix}_customers`, []);
+        const savedSupp = loadFromLocal(`${prefix}_suppliers`, []);
+        const savedExp = loadFromLocal(`${prefix}_expenses`, []);
+        const savedDrafts = loadFromLocal(`${prefix}_drafts`, []);
+        const savedPass = loadFromLocal(`${prefix}_passwords`, { owner: 'owner123', admin: 'admin123' });
+
+        setStoreSettings(savedSettings);
+        setProducts(savedProducts);
+        setTransactions(savedTrx);
+        setCustomers(savedCust);
+        setSuppliers(savedSupp);
+        setExpenses(savedExp);
+        setDraftOrders(savedDrafts);
+        setRolePasswords(savedPass);
+
+        lastLocalUpdateTimestampRef.current = loadFromLocal(`${prefix}_last_ts`, 0);
+        
+        lastSavedStateRef.current = JSON.stringify({
+            storeSettings: savedSettings, products: savedProducts, transactions: savedTrx,
+            customers: savedCust, suppliers: savedSupp, expenses: savedExp, draftOrders: savedDrafts, rolePasswords: savedPass
+        });
+      }, []);
+
+      const handleActivateLicense = async (e) => {
+        e.preventDefault();
+        setLicenseError('');
+        
+        const cleanKey = (licenseInputKey || '').trim().toUpperCase();
+        const cleanStoreName = (licenseOwnerName || '').trim();
+
+        if (!cleanKey || !cleanStoreName) {
+          setLicenseError('Nama Pemilik / Toko dan Kode Lisensi wajib diisi!');
+          return;
+        }
+
+        setIsVerifyingLicense(true);
+
+        // JIKA GOOGLE_SCRIPT_WEBAPP_URL BELUM DIISI (MODE OFFLINE CHECKSUM FALLBACK)
+        if (!GOOGLE_SCRIPT_WEBAPP_URL || GOOGLE_SCRIPT_WEBAPP_URL.includes("PASTE_YOUR_APPS_SCRIPT_URL_HERE")) {
+          const verified = verifyLicenseKeyOffline(cleanKey, cleanStoreName);
+
+          if (!verified.valid) {
+            setLicenseError(verified.message);
+            setIsVerifyingLicense(false);
+            return;
+          }
+
+          const now = new Date();
+          let expiresAt = null;
+          if (verified.durationDays < 99999) {
+            const expDate = new Date();
+            expDate.setDate(expDate.getDate() + verified.durationDays);
+            expiresAt = expDate.toISOString();
+          }
+
+          const newVaultId = "vault_" + Math.random().toString(36).substring(2, 9);
+          const newLicense = {
+            key: verified.key,
+            ownerName: verified.storeName,
+            activatedAt: now.toISOString(),
+            expiresAt: expiresAt,
+            durationDays: verified.durationDays,
+            durationLabel: verified.durationLabel,
+            serial: verified.serial,
+            vaultId: newVaultId,
+            isLifetime: verified.durationDays >= 99999,
+            isDemo: false
+          };
+
+          const targetPrefix = `pospro_data_lic_${newVaultId}`;
+          saveToLocal('pospro_active_license', newLicense);
+          setLicenseData(newLicense);
+          loadStoreDataFromLocal(targetPrefix, verified.storeName);
+
+          setCurrentUserRole({ name: 'Kasir Toko', role: 'kasir', avatar: 'KS' });
+          setActiveTab('pos');
+          setLicenseInputKey('');
+          setLicenseOwnerName('');
+          setShowExtendLicenseModal(false);
+          setIsVerifyingLicense(false);
+          showToast(`✅ Lisensi Offline Berhasil Diaktifkan untuk "${verified.storeName}"! (${verified.durationLabel})`);
+          return;
+        }
+
+        // VERIFIKASI LANGSUNG KE BACKEND GOOGLE SHEETS
+        try {
+          const apiUrl = `${GOOGLE_SCRIPT_WEBAPP_URL}?action=activate&key=${encodeURIComponent(cleanKey)}&storeName=${encodeURIComponent(cleanStoreName)}&token=${encodeURIComponent(APP_SECRET_TOKEN)}`;
+          const response = await fetch(apiUrl, { method: 'GET' });
+          const result = await response.json();
+
+          if (result.success) {
+            const finalStore = result.storeName || cleanStoreName;
+            const newLicense = {
+              key: cleanKey,
+              ownerName: finalStore,
+              activatedAt: result.activatedAt,
+              expiresAt: result.expiresAt,
+              durationDays: result.durationDays,
+              durationLabel: result.durationLabel || (result.durationDays >= 9999 ? 'Permanen (Lifetime)' : `${result.durationDays} Hari`),
+              serial: cleanKey.replace(/[^A-Z0-9]/g, '').slice(-6),
+              vaultId: result.vaultId || `v_${Date.now()}`,
+              isLifetime: result.durationDays >= 9999,
+              isDemo: false
+            };
+
+            const targetPrefix = `pospro_data_lic_${newLicense.vaultId}`;
+            saveToLocal('pospro_active_license', newLicense);
+            setLicenseData(newLicense);
+            loadStoreDataFromLocal(targetPrefix, finalStore);
+
+            setCurrentUserRole({ name: 'Kasir Toko', role: 'kasir', avatar: 'KS' });
+            setActiveTab('pos');
+            setLicenseInputKey('');
+            setLicenseOwnerName('');
+            setShowExtendLicenseModal(false);
+            showToast(`✅ Lisensi Google Sheets Berhasil Diaktifkan untuk "${finalStore}"!`);
+          } else {
+            setLicenseError(result.message || 'Aktivasi gagal. Periksa kembali kode lisensi dan nama toko Anda.');
+          }
+        } catch (err) {
+          setLicenseError('Gagal menghubungi server lisensi Google Sheets. Pastikan URL Web App benar & internet aktif.');
+        } finally {
+          setIsVerifyingLicense(false);
+        }
+      };
+
+      const handleExtendLicense = async (e) => {
+        e.preventDefault();
+        const cleanKey = (extendLicenseKeyInput || '').trim().toUpperCase();
+        if (!cleanKey) return;
+
+        setIsExtendingLicense(true);
+
+        if (!GOOGLE_SCRIPT_WEBAPP_URL || GOOGLE_SCRIPT_WEBAPP_URL.includes("PASTE_YOUR_APPS_SCRIPT_URL_HERE")) {
+          // Mode offline extend
+          const currentExp = new Date(licenseData?.expiresAt || Date.now());
+          currentExp.setDate(currentExp.getDate() + 30);
+          const updatedLic = { ...licenseData, expiresAt: currentExp.toISOString() };
+          saveToLocal('pospro_active_license', updatedLic);
+          setLicenseData(updatedLic);
+          setShowExtendLicenseModal(false);
+          setExtendLicenseKeyInput('');
+          showToast('✅ Lisensi Berhasil Diperpanjang +30 Hari!');
+          setIsExtendingLicense(false);
+          return;
+        }
+
+        try {
+          const apiUrl = `${GOOGLE_SCRIPT_WEBAPP_URL}?action=extend&key=${encodeURIComponent(cleanKey)}&storeName=${encodeURIComponent(licenseData?.ownerName || storeSettings.name)}&vaultId=${encodeURIComponent(licenseData?.vaultId || '')}&token=${encodeURIComponent(APP_SECRET_TOKEN)}`;
+          const response = await fetch(apiUrl, { method: 'GET' });
+          const result = await response.json();
+
+          if (result.success) {
+            const updatedLic = {
+              ...licenseData,
+              expiresAt: result.expiresAt
+            };
+            saveToLocal('pospro_active_license', updatedLic);
+            setLicenseData(updatedLic);
+            setShowExtendLicenseModal(false);
+            setExtendLicenseKeyInput('');
+            showToast(`✅ Lisensi Google Sheets Berhasil Diperpanjang +${result.durationDays} Hari!`);
+          } else {
+            showToast(result.message || 'Kode perpanjangan tidak valid atau sudah digunakan!', 'error');
+          }
+        } catch (err) {
+          showToast('Gagal menghubungi server Google Sheets untuk perpanjangan!', 'error');
+        } finally {
+          setIsExtendingLicense(false);
+        }
+      };
+
+      const handleDemoLicenseActivate = () => {
+        const demoLicense = {
+          key: 'POS-DEMO-TRIAL-0000',
+          ownerName: 'Toko Demo POSPro',
+          activatedAt: new Date().toISOString(),
+          expiresAt: null,
+          durationDays: 999,
+          durationLabel: 'Mode Uji Coba (Demo)',
+          serial: 'DEMO',
+          isLifetime: false,
+          isDemo: true
+        };
+        saveToLocal('pospro_active_license', demoLicense);
+        setLicenseData(demoLicense);
+        loadStoreDataFromLocal('pospro_data_demo_vault', demoLicense.ownerName);
+        setCurrentUserRole({ name: 'Kasir Demo', role: 'kasir', avatar: 'KD' });
+        setActiveTab('pos');
+        showToast('Masuk Mode Uji Coba (Demo)');
+      };
+
+      const handleLogout = () => {
+        localStorage.removeItem('pospro_active_license');
+        setLicenseData(null);
+        lastSavedStateRef.current = null;
+        showToast('Lisensi dinonaktifkan / keluar akun.');
+      };
 
       const showToast = (message, type = 'success') => {
         setToast({ show: true, message, type });
@@ -364,9 +668,9 @@
       };
 
       useEffect(() => {
-        if (!licenseData || licenseData.isDemo) return;
+        if (!licenseData || isDemoUser) return;
 
-        const topic = `pospro/store_channel/${licenseData.vaultId || 'general'}`;
+        const topic = `pospro/store_channel/${syncKey}`;
         let client;
 
         try {
@@ -374,7 +678,7 @@
             keepalive: 60,
             clientId: `pospro_${deviceIdRef.current}_${Math.random().toString(16).substr(2, 6)}`,
             clean: true,
-            reconnectPeriod: 2500
+            reconnectPeriod: 2000
           });
 
           mqttClientRef.current = client;
@@ -382,8 +686,12 @@
           client.on('connect', () => {
             client.subscribe(topic, { qos: 1 }, (err) => {
               if (!err) {
-                setSyncStatusMsg('Tersinkron Real-Time');
-                setLastSyncTime(new Date());
+                setSyncStatusMsg('Terkoneksi Real-Time PC ⇄ HP');
+                client.publish(topic, JSON.stringify({
+                  type: 'REQUEST_LATEST_STATE',
+                  senderId: deviceIdRef.current,
+                  ts: Date.now()
+                }));
               }
             });
           });
@@ -393,35 +701,54 @@
               const payload = JSON.parse(messageBuffer.toString());
               if (!payload || payload.senderId === deviceIdRef.current) return;
 
-              if (payload.type === 'STORE_STATE_UPDATE') {
+              if (payload.type === 'REQUEST_LATEST_STATE') {
+                broadcastCurrentState(true);
+              } else if (payload.type === 'STORE_STATE_UPDATE') {
                 const incomingData = payload.data;
                 const incomingTs = payload.ts || 0;
                 const localTs = lastLocalUpdateTimestampRef.current || 0;
 
-                if (incomingTs > localTs) {
+                if (incomingTs > localTs || (payload.isResponse && incomingTs >= localTs)) {
                   isRemoteUpdatingRef.current = true;
                   lastLocalUpdateTimestampRef.current = incomingTs;
                   saveToLocal(`${userStoragePrefix}_last_ts`, incomingTs);
 
-                  if (incomingData.storeSettings) { saveToLocal(`${userStoragePrefix}_settings`, incomingData.storeSettings); setStoreSettings(incomingData.storeSettings); }
-                  if (incomingData.products) { saveToLocal(`${userStoragePrefix}_products`, incomingData.products); setProducts(incomingData.products); }
-                  if (incomingData.transactions) { saveToLocal(`${userStoragePrefix}_transactions`, incomingData.transactions); setTransactions(incomingData.transactions); }
-                  if (incomingData.customers) { saveToLocal(`${userStoragePrefix}_customers`, incomingData.customers); setCustomers(incomingData.customers); }
-                  if (incomingData.suppliers) { saveToLocal(`${userStoragePrefix}_suppliers`, incomingData.suppliers); setSuppliers(incomingData.suppliers); }
-                  if (incomingData.expenses) { saveToLocal(`${userStoragePrefix}_expenses`, incomingData.expenses); setExpenses(incomingData.expenses); }
-                  if (incomingData.draftOrders) { saveToLocal(`${userStoragePrefix}_drafts`, incomingData.draftOrders); setDraftOrders(incomingData.draftOrders); }
-                  if (incomingData.rolePasswords) { saveToLocal(`${userStoragePrefix}_passwords`, incomingData.rolePasswords); setRolePasswords(incomingData.rolePasswords); }
+                  if (incomingData.storeSettings) saveToLocal(`${userStoragePrefix}_settings`, incomingData.storeSettings);
+                  if (incomingData.products) saveToLocal(`${userStoragePrefix}_products`, incomingData.products);
+                  if (incomingData.transactions) saveToLocal(`${userStoragePrefix}_transactions`, incomingData.transactions);
+                  if (incomingData.customers) saveToLocal(`${userStoragePrefix}_customers`, incomingData.customers);
+                  if (incomingData.suppliers) saveToLocal(`${userStoragePrefix}_suppliers`, incomingData.suppliers);
+                  if (incomingData.expenses) saveToLocal(`${userStoragePrefix}_expenses`, incomingData.expenses);
+                  if (incomingData.draftOrders) saveToLocal(`${userStoragePrefix}_drafts`, incomingData.draftOrders);
+                  if (incomingData.rolePasswords) saveToLocal(`${userStoragePrefix}_passwords`, incomingData.rolePasswords);
+
+                  if (incomingData.storeSettings) setStoreSettings(incomingData.storeSettings);
+                  if (incomingData.products) setProducts(incomingData.products);
+                  if (incomingData.transactions) setTransactions(incomingData.transactions);
+                  if (incomingData.customers) setCustomers(incomingData.customers);
+                  if (incomingData.suppliers) setSuppliers(incomingData.suppliers);
+                  if (incomingData.expenses) setExpenses(incomingData.expenses);
+                  if (incomingData.draftOrders) setDraftOrders(incomingData.draftOrders);
+                  if (incomingData.rolePasswords) setRolePasswords(incomingData.rolePasswords);
 
                   lastSavedStateRef.current = JSON.stringify(incomingData);
+
                   setLastSyncTime(new Date());
+                  setSyncStatusMsg('Data Terupdate dari Perangkat Lain');
                   showToast('⚡ Data otomatis tersinkron dari perangkat lain!');
 
-                  setTimeout(() => { isRemoteUpdatingRef.current = false; }, 400);
+                  setTimeout(() => {
+                    isRemoteUpdatingRef.current = false;
+                  }, 400);
                 }
               }
             } catch (e) {
               console.warn("MQTT Parse error:", e);
             }
+          });
+
+          client.on('error', () => {
+            setSyncStatusMsg('Reconnecting Cloud...');
           });
         } catch (err) {
           console.warn("MQTT Connection error:", err);
@@ -432,163 +759,38 @@
             try { client.end(true); } catch (e) {}
           }
         };
-      }, [userStoragePrefix, licenseData]);
+      }, [licenseData, isDemoUser, syncKey, userStoragePrefix]);
 
-      const broadcastCurrentState = useCallback(() => {
-        if (!mqttClientRef.current || !mqttClientRef.current.connected || !licenseData || licenseData.isDemo) return;
+      const broadcastCurrentState = useCallback((isResponseToRequest = false) => {
+        if (!licenseData || isDemoUser || !mqttClientRef.current || !mqttClientRef.current.connected) return;
 
-        const currentTs = Date.now();
-        lastLocalUpdateTimestampRef.current = currentTs;
-        saveToLocal(`${userStoragePrefix}_last_ts`, currentTs);
+        let currentTs = lastLocalUpdateTimestampRef.current;
+
+        if (!isResponseToRequest) {
+          currentTs = Date.now();
+          lastLocalUpdateTimestampRef.current = currentTs;
+          saveToLocal(`${userStoragePrefix}_last_ts`, currentTs);
+        }
 
         const storePayload = {
           type: 'STORE_STATE_UPDATE',
           senderId: deviceIdRef.current,
           ts: currentTs,
+          isResponse: isResponseToRequest,
           data: {
             storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords
           }
         };
 
-        const topic = `pospro/store_channel/${licenseData.vaultId || 'general'}`;
+        const topic = `pospro/store_channel/${syncKey}`;
         mqttClientRef.current.publish(topic, JSON.stringify(storePayload), { qos: 1 });
         setLastSyncTime(new Date());
-        setSyncStatusMsg('Tersinkronisasi Real-Time');
-      }, [userStoragePrefix, licenseData, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
-
-      const handleActivateLicense = async (e) => {
-        e.preventDefault();
-        setLicenseError('');
-
-        const cleanKey = licenseInputKey.trim().toUpperCase();
-        const cleanStoreName = licenseStoreName.trim();
-
-        if (!cleanKey || !cleanStoreName) {
-          setLicenseError('Nama Toko dan Kode Lisensi wajib diisi!');
-          return;
-        }
-
-        setIsVerifyingLicense(true);
-
-        try {
-          if (!GOOGLE_SCRIPT_WEBAPP_URL || GOOGLE_SCRIPT_WEBAPP_URL.includes("PASTE_YOUR_APPS_SCRIPT_URL_HERE")) {
-            const newVaultId = "vault_" + Math.random().toString(36).substring(2, 9);
-            const demoLic = {
-              key: cleanKey,
-              storeName: cleanStoreName,
-              durationDays: cleanKey.includes('LIFE') ? 9999 : 30,
-              vaultId: newVaultId,
-              activatedAt: new Date().toISOString(),
-              expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-              isDemo: false
-            };
-            saveToLocal('pospro_cloud_license', demoLic);
-            setLicenseData(demoLic);
-            setStoreSettings(prev => ({ ...prev, name: cleanStoreName }));
-            showToast(`✅ Lisensi Offline Berhasil Diaktifkan untuk "${cleanStoreName}"!`);
-            setIsVerifyingLicense(false);
-            return;
-          }
-
-          const apiUrl = `${GOOGLE_SCRIPT_WEBAPP_URL}?action=activate&key=${encodeURIComponent(cleanKey)}&storeName=${encodeURIComponent(cleanStoreName)}&token=${encodeURIComponent(APP_SECRET_TOKEN)}`;
-          const response = await fetch(apiUrl, { method: 'GET' });
-          const result = await response.json();
-
-          if (result.success) {
-            const newLicense = {
-              key: cleanKey,
-              storeName: result.storeName || cleanStoreName,
-              durationDays: result.durationDays,
-              durationLabel: result.durationLabel,
-              vaultId: result.vaultId,
-              activatedAt: result.activatedAt,
-              expiresAt: result.expiresAt,
-              isLifetime: result.durationDays >= 9999,
-              isDemo: false
-            };
-
-            saveToLocal('pospro_cloud_license', newLicense);
-            setLicenseData(newLicense);
-            setStoreSettings(prev => ({ ...prev, name: newLicense.storeName }));
-            showToast(`✅ Lisensi Berhasil Diaktifkan untuk "${newLicense.storeName}"!`);
-          } else {
-            setLicenseError(result.message || 'Aktivasi gagal. Periksa kembali kode lisensi Anda.');
-          }
-        } catch (err) {
-          setLicenseError('Gagal menghubungi server lisensi Google Sheet. Pastikan koneksi internet aktif.');
-        } finally {
-          setIsVerifyingLicense(false);
-        }
-      };
-
-      const handleExtendLicense = async (e) => {
-        e.preventDefault();
-        const cleanKey = extendInputKey.trim().toUpperCase();
-        if (!cleanKey) return;
-
-        setIsExtendingLicense(true);
-        try {
-          if (!GOOGLE_SCRIPT_WEBAPP_URL || GOOGLE_SCRIPT_WEBAPP_URL.includes("PASTE_YOUR_APPS_SCRIPT_URL_HERE")) {
-            const currentExp = new Date(licenseData.expiresAt || Date.now());
-            currentExp.setDate(currentExp.getDate() + 30);
-            const updatedLic = { ...licenseData, expiresAt: currentExp.toISOString() };
-            saveToLocal('pospro_cloud_license', updatedLic);
-            setLicenseData(updatedLic);
-            setShowExtendModal(false);
-            setExtendInputKey('');
-            showToast('✅ Lisensi Berhasil Diperpanjang 30 Hari!');
-            setIsExtendingLicense(false);
-            return;
-          }
-
-          const apiUrl = `${GOOGLE_SCRIPT_WEBAPP_URL}?action=extend&key=${encodeURIComponent(cleanKey)}&storeName=${encodeURIComponent(licenseData.storeName)}&vaultId=${encodeURIComponent(licenseData.vaultId)}&token=${encodeURIComponent(APP_SECRET_TOKEN)}`;
-          const response = await fetch(apiUrl, { method: 'GET' });
-          const result = await response.json();
-
-          if (result.success) {
-            const updatedLic = {
-              ...licenseData,
-              expiresAt: result.expiresAt
-            };
-            saveToLocal('pospro_cloud_license', updatedLic);
-            setLicenseData(updatedLic);
-            setShowExtendModal(false);
-            setExtendInputKey('');
-            showToast(`✅ Lisensi Berhasil Diperpanjang +${result.durationDays} Hari!`);
-          } else {
-            showToast(result.message || 'Kode perpanjangan tidak valid!', 'error');
-          }
-        } catch (err) {
-          showToast('Gagal memproses perpanjangan di Google Sheets!', 'error');
-        } finally {
-          setIsExtendingLicense(false);
-        }
-      };
-
-      const handleDemoTrial = () => {
-        const demoLic = {
-          key: 'POS-DEMO-TRIAL-0000',
-          storeName: 'Toko Demo POSPro',
-          durationDays: 999,
-          vaultId: 'demo_user_vault',
-          activatedAt: new Date().toISOString(),
-          expiresAt: null,
-          isDemo: true
-        };
-        saveToLocal('pospro_cloud_license', demoLic);
-        setLicenseData(demoLic);
-        setStoreSettings(prev => ({ ...prev, name: 'Toko Demo POSPro' }));
-        showToast('Masuk Mode Uji Coba (Demo)');
-      };
-
-      const handleLogout = () => {
-        localStorage.removeItem('pospro_cloud_license');
-        setLicenseData(null);
-        showToast('Sesi lisensi toko ditutup.');
-      };
+        setSyncStatusMsg(isResponseToRequest ? 'Mengirim Data ke Perangkat Lain' : 'Tersinkronisasi Real-Time');
+      }, [licenseData, isDemoUser, syncKey, userStoragePrefix, storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords]);
 
       useEffect(() => {
         if (!licenseData) return;
+        
         const currentStateStr = JSON.stringify({ storeSettings, products, transactions, customers, suppliers, expenses, draftOrders, rolePasswords });
         
         if (lastSavedStateRef.current === null) {
@@ -611,13 +813,13 @@
         saveToLocal(`${userStoragePrefix}_expenses`, expenses);
         saveToLocal(`${userStoragePrefix}_passwords`, rolePasswords);
 
-        if (!isRemoteUpdatingRef.current) {
+        if (!isDemoUser && !isRemoteUpdatingRef.current) {
           const timer = setTimeout(() => {
-            broadcastCurrentState();
+            broadcastCurrentState(false);
           }, 600);
           return () => clearTimeout(timer);
         }
-      }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, licenseData, broadcastCurrentState]);
+      }, [userStoragePrefix, storeSettings, products, transactions, draftOrders, customers, suppliers, expenses, rolePasswords, licenseData, isDemoUser, broadcastCurrentState]);
 
       const [cart, setCart] = useState([]);
       const [discount, setDiscount] = useState(0);
@@ -630,6 +832,8 @@
       const [showDraftListModal, setShowDraftListModal] = useState(false);
       const [showDraftSaveModal, setShowDraftSaveModal] = useState(false);
       const [draftNameInput, setDraftNameInput] = useState('');
+      const [showDiscountModal, setShowDiscountModal] = useState(false);
+      const [discountInput, setDiscountInput] = useState('');
       const [isSaving, setIsSaving] = useState(false);
 
       const [scannerModal, setScannerModal] = useState({
@@ -859,70 +1063,196 @@
         if (scannerModal.target === 'product_form') {
           const existing = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (existing && !editingProduct) {
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'warning',
+                title: '⚠️ BARANG SUDAH ADA!',
+                desc: `Barcode ${cleanCode} sudah terdaftar untuk produk "${existing.name}".`,
+                code: cleanCode
+              }
+            }));
             setEditingProduct(existing);
             setProductForm(existing);
             showToast(`⚠️ Barang sudah ada! (${existing.name})`, 'error');
-            closeScannerModal();
+            setTimeout(() => closeScannerModal(), 1400);
           } else {
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'success',
+                title: '✅ BARCODE DITERIMA',
+                desc: `SKU ${cleanCode} berhasil dimasukkan ke form barang.`,
+                code: cleanCode
+              }
+            }));
             setProductForm(prev => ({ ...prev, sku: cleanCode }));
             showToast(`SKU Barcode ${cleanCode} berhasil dimasukkan!`);
-            closeScannerModal();
+            setTimeout(() => closeScannerModal(), 800);
           }
         } else if (scannerModal.target === 'inventory_restock') {
           const matchedIndex = products.findIndex(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (matchedIndex !== -1) {
             const updatedProducts = [...products];
-            const newStock = (Number(updatedProducts[matchedIndex].stock) || 0) + 1;
-            updatedProducts[matchedIndex] = { ...updatedProducts[matchedIndex], stock: newStock };
+            const currentStock = Number(updatedProducts[matchedIndex].stock) || 0;
+            const newStock = currentStock + 1;
+            updatedProducts[matchedIndex] = {
+              ...updatedProducts[matchedIndex],
+              stock: newStock
+            };
             setProducts(updatedProducts);
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'success',
+                title: '✅ STOK DITAMBAHKAN (+1)',
+                desc: `"${updatedProducts[matchedIndex].name}"`,
+                code: cleanCode,
+                scanCount: newStock,
+                countLabel: 'Total Stok Sekarang'
+              }
+            }));
             showToast(`✅ +1 Stok "${updatedProducts[matchedIndex].name}" (Total: ${newStock})`);
             if (!scannerModal.continuousMode) closeScannerModal();
           } else {
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'error',
+                title: '⚠️ BARANG BELUM TERDAFTAR!',
+                desc: `Kode ${cleanCode} tidak ditemukan di database produk toko.`,
+                code: cleanCode,
+                action: 'create_product'
+              }
+            }));
             showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
           }
         } else {
           const matchedProduct = products.find(p => (p.sku && p.sku.toUpperCase() === cleanCode) || p.id === cleanCode);
           if (matchedProduct) {
+            const existingCartItem = cart.find(item => item.product.id === matchedProduct.id);
+            const currentQty = existingCartItem ? Number(existingCartItem.qty) || 0 : 0;
+            const nextQty = currentQty + 1;
+
             const added = addToCart(matchedProduct);
-            if (added) showToast(`+1 ${matchedProduct.name} masuk keranjang!`);
+            if (added) {
+              setScannerModal(prev => ({
+                ...prev,
+                lastScanned: cleanCode,
+                feedback: {
+                  type: 'success',
+                  title: '✅ MASUK KERANJANG',
+                  desc: `${matchedProduct.name} • ${formatMoney(matchedProduct.price)}`,
+                  code: cleanCode,
+                  scanCount: nextQty,
+                  countLabel: 'Jumlah di Keranjang',
+                  subtotalItem: formatMoney(matchedProduct.price * nextQty)
+                }
+              }));
+              showToast(`+1 ${matchedProduct.name} (Total: ${nextQty}x)`);
+            } else {
+              setScannerModal(prev => ({
+                ...prev,
+                lastScanned: cleanCode,
+                feedback: {
+                  type: 'warning',
+                  title: '⚠️ MAKSIMAL STOK / HABIS',
+                  desc: `Stok ${matchedProduct.name} tidak mencukupi untuk ditambah lagi.`,
+                  code: cleanCode,
+                  scanCount: currentQty,
+                  countLabel: 'Jumlah Maksimal'
+                }
+              }));
+            }
             if (!scannerModal.continuousMode) closeScannerModal();
           } else {
+            setScannerModal(prev => ({
+              ...prev,
+              lastScanned: cleanCode,
+              feedback: {
+                type: 'error',
+                title: '⚠️ BARANG BELUM TERDAFTAR!',
+                desc: `Kode barcode ${cleanCode} belum dimasukkan ke data barang toko.`,
+                code: cleanCode,
+                action: 'create_product'
+              }
+            }));
             showToast(`⚠️ Barang belum terdaftar! (${cleanCode})`, 'error');
           }
         }
-      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal]);
+      }, [scannerModal.target, scannerModal.continuousMode, products, editingProduct, addToCart, closeScannerModal, cart]);
 
       const startLiveCamera = async () => {
         setScannerModal(prev => ({ ...prev, isLoadingCamera: true, errorMsg: '' }));
+
         try {
-          if (typeof window.Html5Qrcode === 'undefined') throw new Error("Pustaka scanner belum dimuat");
+          if (typeof window.Html5Qrcode === 'undefined') throw new Error("Pustaka pemindai belum siap.");
+
           if (scannerInstanceRef.current) {
             try { await scannerInstanceRef.current.stop(); } catch(e){}
             scannerInstanceRef.current = null;
           }
+
           const readerElem = document.getElementById('scanner-reader');
           if (!readerElem) throw new Error("Elemen pemindai belum siap");
 
           const html5QrCode = new window.Html5Qrcode('scanner-reader', { verbose: false });
           scannerInstanceRef.current = html5QrCode;
 
+          const formats = (window.Html5QrcodeSupportedFormats) ? [
+            window.Html5QrcodeSupportedFormats.QR_CODE,
+            window.Html5QrcodeSupportedFormats.EAN_13,
+            window.Html5QrcodeSupportedFormats.EAN_8,
+            window.Html5QrcodeSupportedFormats.CODE_128,
+            window.Html5QrcodeSupportedFormats.CODE_39,
+            window.Html5QrcodeSupportedFormats.UPC_A,
+            window.Html5QrcodeSupportedFormats.UPC_E
+          ] : undefined;
+
           const config = {
             fps: 20,
-            qrbox: (w, h) => {
-              const minEdge = Math.min(w, h);
+            qrbox: (viewfinderWidth, viewfinderHeight) => {
+              const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
               return { width: Math.floor(minEdge * 0.78), height: Math.floor(minEdge * 0.58) };
             },
             aspectRatio: 1.0,
-            videoConstraints: { facingMode: { ideal: "environment" } }
+            videoConstraints: { facingMode: { ideal: "environment" } },
+            ...(formats ? { formatsToSupport: formats } : {})
           };
 
-          await html5QrCode.start({ facingMode: "environment" }, config, (text) => handleScannedBarcode(text), () => {});
+          const videoPatcher = setInterval(() => {
+            const vid = document.querySelector('#scanner-reader video');
+            if (vid) {
+              vid.setAttribute('playsinline', 'true');
+              vid.setAttribute('webkit-playsinline', 'true');
+              vid.muted = true;
+              if (vid.paused) vid.play().catch(() => {});
+            }
+          }, 200);
+
+          try {
+            await html5QrCode.start({ facingMode: "environment" }, config, (text) => handleScannedBarcode(text), () => {});
+          } catch (firstErr) {
+            const cameras = await window.Html5Qrcode.getCameras();
+            if (cameras && cameras.length > 0) {
+              const rearCam = cameras.find(c => /back|rear|environment|belakang/i.test(c.label)) || cameras[cameras.length - 1];
+              await html5QrCode.start(rearCam.id, config, (text) => handleScannedBarcode(text), () => {});
+            } else {
+              throw new Error("Kamera tidak ditemukan");
+            }
+          }
+
+          setTimeout(() => clearInterval(videoPatcher), 3000);
           setScannerModal(prev => ({ ...prev, isLoadingCamera: false, errorMsg: '' }));
         } catch (err) {
           setScannerModal(prev => ({ 
             ...prev, 
             isLoadingCamera: false,
-            errorMsg: 'Izin kamera dibatasi browser. Silakan izinkan akses kamera.' 
+            errorMsg: 'Izin kamera dibatasi browser. Silakan izinkan kamera di browser HP Anda.' 
           }));
         }
       };
@@ -948,6 +1278,7 @@
         if (paymentMethod !== 'Cash' && paymentMethod !== 'Hutang') finalCash = grandTotal;
         
         const changeAmount = paymentMethod === 'Cash' ? Math.max(0, finalCash - grandTotal) : 0;
+
         const selectedCust = customers.find(c => c.id === selectedCustomerPOS);
 
         const newTransaction = {
@@ -969,7 +1300,8 @@
           updatedCustomers = customers.map(c => c.id === selectedCust.id ? { ...c, totalTrx: (c.totalTrx || 0) + 1, totalSpent: (c.totalSpent || 0) + grandTotal, debt: (c.debt || 0) + addedDebt } : c);
         }
 
-        setTransactions([newTransaction, ...transactions]);
+        const newTrxList = [newTransaction, ...transactions];
+        setTransactions(newTrxList);
         setProducts(updatedProducts);
         setCustomers(updatedCustomers);
         setCart([]);
@@ -1002,12 +1334,16 @@
         const finalSku = productForm.sku.trim() === '' ? `BRG-${Math.floor(1000 + Math.random() * 9000)}` : productForm.sku.toUpperCase();
         const formattedData = { ...productForm, sku: finalSku, costPrice: Number(productForm.costPrice) || 0, price: Number(productForm.price) || 0, packPrice: Number(productForm.packPrice) || 0, stock: Number(productForm.stock) || 0 };
 
+        let updatedProducts;
         if (editingProduct) { 
-          setProducts(products.map(p => p.id === editingProduct.id ? { ...p, ...formattedData } : p));
+          updatedProducts = products.map(p => p.id === editingProduct.id ? { ...p, ...formattedData } : p);
+          setProducts(updatedProducts);
           showToast('Produk diperbarui');
         } else {
           if (products.some(p => p.sku === finalSku)) { showToast('⚠️ Barang sudah ada!', 'error'); setIsSaving(false); return; }
-          setProducts([...products, { ...formattedData, id: generateId() }]);
+          const newProduct = { ...formattedData, id: generateId() };
+          updatedProducts = [...products, newProduct];
+          setProducts(updatedProducts);
           showToast('Produk ditambahkan');
         }
         setIsProductModalOpen(false);
@@ -1043,7 +1379,7 @@
         if (!supplierFound) updatedSuppliers.push({ id: `SUP-${Math.floor(1000 + Math.random() * 9000)}`, name: targetSupplierName, contactPerson: '-', phone: '-', address: '-', totalPurchases: totalBill, debt: unpaidDebt });
         
         setSuppliers(updatedSuppliers); setProducts(updatedProducts); setShowRestockModal(false); 
-        showToast('Stok masuk berhasil disimpan!');
+        showToast(unpaidDebt > 0 ? `Stok masuk tersimpan. Hutang dicatat.` : 'Stok masuk berhasil disimpan!');
       };
 
       const handleSaveStockOut = (e) => {
@@ -1071,7 +1407,8 @@
           setCustomers(customers.map(c => c.id === editingCustomer.id ? { ...c, ...customerForm } : c));
           showToast('Pelanggan diperbarui');
         } else { 
-          setCustomers([...customers, { ...customerForm, id: `CUST-${Math.floor(1000 + Math.random() * 9000)}`, totalTrx: 0, totalSpent: 0, debt: 0 }]);
+          const newCustomer = { ...customerForm, id: `CUST-${Math.floor(1000 + Math.random() * 9000)}`, totalTrx: 0, totalSpent: 0, debt: 0 };
+          setCustomers([...customers, newCustomer]);
           showToast('Pelanggan ditambahkan');
         } 
         setIsCustomerModalOpen(false);
@@ -1089,7 +1426,8 @@
           setSuppliers(suppliers.map(s => s.id === editingSupplier.id ? { ...s, ...supplierForm } : s));
           showToast('Supplier diperbarui');
         } else { 
-          setSuppliers([...suppliers, { ...supplierForm, id: `SUP-${Math.floor(1000 + Math.random() * 9000)}`, totalPurchases: 0, debt: 0 }]);
+          const newSupp = { ...supplierForm, id: `SUP-${Math.floor(1000 + Math.random() * 9000)}`, totalPurchases: 0, debt: 0 };
+          setSuppliers([...suppliers, newSupp]);
           showToast('Supplier ditambahkan');
         } 
         setIsSupplierModalOpen(false);
@@ -1166,6 +1504,10 @@
       };
 
       const handleBackupDatabase = () => {
+        if (isDemoUser) {
+          showToast('Fitur unduh cadangan JSON dinonaktifkan pada Mode Demo!', 'error');
+          return;
+        }
         const backupData = {
           license: licenseData,
           storeSettings,
@@ -1182,13 +1524,17 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `backup_${(licenseData?.storeName || 'toko').toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
+        a.download = `backup_pospro_${(licenseData?.ownerName || 'store').toLowerCase().replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.json`;
         a.click();
         URL.revokeObjectURL(url);
         showToast('Cadangan data berhasil diunduh!');
       };
 
       const handleRestoreDatabase = (e) => {
+        if (isDemoUser) {
+          showToast('Fitur pemulihan data dinonaktifkan pada Mode Demo!', 'error');
+          return;
+        }
         const file = e.target.files && e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
@@ -1204,7 +1550,7 @@
             if (data.rolePasswords) setRolePasswords(data.rolePasswords);
             showToast('Data berhasil dipulihkan dari file backup!');
           } catch (err) {
-            showToast('Gagal memulihkan: Format JSON tidak valid', 'error');
+            showToast('Gagal memulihkan data: Format file tidak valid', 'error');
           }
         };
         reader.readAsText(file);
@@ -1244,8 +1590,8 @@
                 <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">Aktivasi Lisensi POSPro</h1>
                 <p className="text-xs text-slate-400">
                   {licenseStatus.isExpired 
-                    ? 'Masa aktif lisensi toko Anda telah berakhir. Masukkan lisensi baru untuk memperpanjang.' 
-                    : 'Sistem Kasir & Toko Pintar. Masukkan lisensi untuk membuka toko Anda.'}
+                    ? 'Masa aktif lisensi aplikasi Anda telah berakhir. Masukkan lisensi baru untuk memperpanjang.' 
+                    : 'Sistem Kasir & Sinkronisasi Real-Time PC ⇄ HP. Masukkan Lisensi Key untuk mengaktifkan.'}
                 </p>
               </div>
 
@@ -1259,35 +1605,38 @@
               <form onSubmit={handleActivateLicense} className="space-y-3.5 text-left text-xs">
                 <div>
                   <label className="text-slate-300 font-bold mb-1.5 block flex items-center gap-1.5">
-                    <Icon name="store" className="w-3.5 h-3.5 text-[#00d2d3]" />
-                    <span>Nama Toko / Usaha:</span>
+                    <Icon name="user" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>Nama Toko / Pemilik (Terkunci ke Lisensi):</span>
                   </label>
                   <input 
                     type="text" 
                     required 
-                    placeholder="Contoh: Kopi Janji Senja" 
-                    value={licenseStoreName} 
-                    onChange={(e) => setLicenseStoreName(e.target.value)} 
-                    className="w-full p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-white outline-none focus:border-[#00d2d3] font-medium text-xs sm:text-sm"
+                    placeholder="Contoh: Toko Berkah Abadi" 
+                    value={licenseOwnerName} 
+                    onChange={(e) => setLicenseOwnerName(e.target.value)} 
+                    className="w-full p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-white outline-none focus:border-[#00d2d3] font-medium"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
-                    *Nama toko ini akan otomatis tercatat dan terkunci di Google Sheets.
+                    *Harus sama persis dengan nama toko saat lisensi dibuat.
                   </p>
                 </div>
 
                 <div>
                   <label className="text-slate-300 font-bold mb-1.5 block flex items-center gap-1.5">
-                    <Icon name="key-round" className="w-3.5 h-3.5 text-[#00d2d3]" />
-                    <span>Kode Lisensi Google Sheets (1x Pakai):</span>
+                    <Icon name="shield-check" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>Kode Lisensi Key:</span>
                   </label>
                   <input 
                     type="text" 
                     required 
-                    placeholder="POS-30D-XXXX-YYYY" 
+                    placeholder="POS-30D-XXXXX-YYYY" 
                     value={licenseInputKey} 
                     onChange={(e) => setLicenseInputKey(e.target.value.toUpperCase())} 
                     className="w-full p-3.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-[#00d2d3] outline-none focus:border-[#00d2d3] font-mono font-bold text-center tracking-wider text-sm sm:text-base"
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    Kode lisensi ini terkunci khusus untuk nama toko di atas.
+                  </p>
                 </div>
 
                 <button
@@ -1298,7 +1647,7 @@
                   {isVerifyingLicense ? (
                     <>
                       <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      <span>Memvalidasi Google Sheets...</span>
+                      <span>Memverifikasi ke Google Sheets...</span>
                     </>
                   ) : (
                     <>
@@ -1311,7 +1660,7 @@
 
               <div className="pt-2 border-t border-[#2a2f60] flex items-center justify-center">
                 <button
-                  onClick={handleDemoTrial}
+                  onClick={handleDemoLicenseActivate}
                   className="w-full py-2.5 px-3 bg-[#21254d] hover:bg-[#2a2f60] text-slate-300 hover:text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer"
                 >
                   <Icon name="sparkles" className="w-3.5 h-3.5 text-amber-400" />
@@ -1403,38 +1752,40 @@
 
         return (
           <div className="p-3 sm:p-6 pb-28 lg:pb-8 space-y-4 max-w-7xl mx-auto">
-            {/* Status Lisensi & Sinkronisasi */}
-            <div className={`p-4 rounded-3xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs ${
+            {/* Indikator Status Cloud Sync & Lisensi */}
+            <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 text-xs ${
               theme === 'dark' ? 'bg-[#181b3b]/90 border-[#2a2f60]' : 'bg-white border-slate-200 shadow-sm'
             }`}>
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center">
-                  <Icon name="shield-check" className="w-5 h-5 text-[#00d2d3]" />
-                </div>
+              <div className="flex items-center gap-2.5">
+                <span className={`w-3 h-3 rounded-full shrink-0 ${isCloudSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
                 <div>
-                  <h3 className="font-black text-sm flex items-center gap-1.5 flex-wrap">
-                    <span>Toko: <strong className="text-[#00d2d3]">{licenseData?.storeName || storeSettings.name}</strong></span>
-                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
-                      {licenseStatus.label}
+                  <p className="font-extrabold text-xs flex items-center gap-1.5 flex-wrap">
+                    <Icon name="zap" className="w-3.5 h-3.5 text-[#00d2d3]" />
+                    <span>{isCloudSyncing ? 'Menyinkronkan data...' : 'Real-Time Sync Aktif (PC ⇄ HP)'}</span>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.2 rounded font-mono">Live Key Sync</span>
+                    <span className="text-[10px] bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.2 rounded font-bold">
+                      🛡️ Lisensi: {licenseStatus.label}
                     </span>
-                  </h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Vault ID: <span className="font-mono text-cyan-300">{licenseData?.vaultId || 'Local'}</span> • Sync: <span className="text-emerald-400 font-bold">{syncStatusMsg}</span>
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5">
+                    Toko: <span className="text-cyan-400 font-bold">{licenseData?.ownerName || storeSettings.name}</span> • Status: <span className="text-emerald-400 font-bold">{syncStatusMsg}</span> ({lastSyncTime ? lastSyncTime.toLocaleTimeString('id-ID') : 'Baru saja'})
                   </p>
                 </div>
               </div>
-              <div className="flex gap-2">
+              <div className="flex items-center gap-2">
                 <button 
-                  onClick={() => setShowExtendModal(true)} 
-                  className="px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white rounded-xl text-xs font-black shadow-md flex items-center gap-1.5 cursor-pointer"
+                  onClick={() => {
+                    broadcastCurrentState(true);
+                    showToast('⚡ Mengirim sinyal sinkronisasi ke seluruh perangkat!');
+                  }}
+                  className="px-3 py-1.5 bg-[#21254d] hover:bg-indigo-600 text-slate-200 hover:text-white rounded-xl text-xs font-bold flex items-center gap-1.5 border border-[#2a2f60] transition-all cursor-pointer shrink-0"
                 >
-                  <Icon name="key-round" className="w-3.5 h-3.5" />
-                  <span>Perpanjang Lisensi</span>
+                  <Icon name="refresh-cw" className="w-3.5 h-3.5" />
+                  <span>Sinkron Sekarang</span>
                 </button>
               </div>
             </div>
 
-            {/* Circular Category Gauges */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {categoryStats.map((cat, idx) => {
@@ -1501,7 +1852,6 @@
                 })}
               </div>
 
-              {/* 4 Kartu Metrik Keuangan */}
               <div className="lg:col-span-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className={`p-4 rounded-3xl border flex flex-col justify-between transition-all ${
                   theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-lg' : 'bg-white border-slate-200 shadow-sm'
@@ -1589,7 +1939,6 @@
               </div>
             </div>
 
-            {/* Inventory Chart & Fast Selling Products Progress */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div className={`lg:col-span-7 p-4 sm:p-6 rounded-3xl border flex flex-col justify-between transition-all ${
                 theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white shadow-xl' : 'bg-white border-slate-200 shadow-sm text-slate-800'
@@ -1699,11 +2048,17 @@
                 <div className="flex items-center gap-2">
                   {cart.length > 0 && (
                     <button 
-                      onClick={() => { setCart([]); setCashReceived(''); showToast('Keranjang dikosongkan'); }}
-                      className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full text-xs font-bold flex items-center gap-1 transition-all cursor-pointer"
+                      onClick={() => {
+                        setCart([]);
+                        setDiscount(storeSettings.defaultDiscount || 0);
+                        setCashReceived('');
+                        showToast('Semua daftar pesanan berhasil dihapus.');
+                      }}
+                      className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm"
+                      title="Hapus Semua Barang dari Keranjang"
                     >
                       <Icon name="trash-2" className="w-3 h-3 text-rose-400" />
-                      <span>Hapus</span>
+                      <span>Hapus Semua</span>
                     </button>
                   )}
                   <span className="bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 text-xs font-black px-2.5 py-1 rounded-full">
@@ -1732,7 +2087,7 @@
                 <div className="h-full min-h-[180px] flex flex-col items-center justify-center text-slate-400 opacity-60 space-y-2">
                   <Icon name="shopping-bag" className="w-12 h-12" />
                   <p className="text-xs font-bold">Keranjang masih kosong</p>
-                  <p className="text-[10px]">Klik produk di samping atau scan barcode.</p>
+                  <p className="text-[10px]">Pilih produk atau scan barcode kemasan barang.</p>
                 </div>
               ) : (
                 cart.map(item => (
@@ -1742,9 +2097,12 @@
                     <div className="flex justify-between items-start">
                       <div className="flex-1 pr-2">
                         <p className="font-extrabold text-xs sm:text-sm line-clamp-1">{item.product.name}</p>
-                        <span className="text-[#00d2d3] font-bold text-xs">{formatMoney(item.product.price)}</span>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-[#00d2d3] font-bold text-xs">{formatMoney(item.product.price)}</span>
+                          {item.discountRp > 0 && <span className="text-[10px] bg-rose-500/20 text-rose-400 px-1.5 py-0.5 rounded font-bold">- {formatMoney(item.discountRp)}</span>}
+                        </div>
                       </div>
-                      <button onClick={() => removeFromCart(item.product.id)} className="p-1 text-slate-400 hover:text-rose-400 cursor-pointer">
+                      <button onClick={() => removeFromCart(item.product.id)} className={`p-1.5 rounded-lg cursor-pointer transition-colors ${theme === 'dark' ? 'text-slate-400 hover:text-rose-400 bg-[#0f1228] hover:bg-rose-500/10' : 'text-slate-400 hover:text-rose-500 bg-slate-50 hover:bg-rose-50'}`}>
                         <Icon name="trash-2" className="w-4 h-4" />
                       </button>
                     </div>
@@ -1756,7 +2114,7 @@
                           placeholder="Rp" 
                           value={item.discountRp} 
                           onChange={(e) => updateItemDiscount(item.product.id, e.target.value)} 
-                          className={`w-16 rounded-lg px-2 py-0.5 text-xs font-medium outline-none border ${
+                          className={`w-16 rounded-lg px-2 py-0.5 text-xs font-medium outline-none border [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${
                             theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50 border-slate-200'
                           }`} 
                         />
@@ -1767,7 +2125,8 @@
                           type="number"
                           value={item.qty}
                           onChange={(e) => setExactQty(item.product.id, e.target.value)}
-                          className={`w-8 text-center font-bold text-xs bg-transparent outline-none ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}
+                          onBlur={() => { if (!item.qty || Number(item.qty) <= 0) setExactQty(item.product.id, 1); }}
+                          className={`w-9 text-center font-bold text-xs bg-transparent outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}
                         />
                         <button onClick={() => updateQty(item.product.id, 1)} className="w-7 h-7 flex items-center justify-center hover:bg-white/10 rounded-lg font-bold text-sm cursor-pointer">+</button>
                       </div>
@@ -1799,10 +2158,12 @@
                 </select>
               </div>
 
-              <div className="space-y-1 text-xs">
+              <div className="space-y-1.5 text-xs">
                 <div className="flex justify-between text-slate-400"><span>Subtotal:</span><span className="font-bold">{formatMoney(subtotal)}</span></div>
+                {discount > 0 && (<div className="flex justify-between text-[#00d2d3]"><span>Diskon ({discount}%):</span><span>-{formatMoney(discountAmount)}</span></div>)}
+                {Number(storeSettings.taxPercent) > 0 && (<div className="flex justify-between text-slate-400"><span>Pajak ({storeSettings.taxPercent}%):</span><span>{formatMoney(taxAmount)}</span></div>)}
                 <div className={`flex justify-between items-baseline pt-2 border-t ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>
-                  <span className="font-black text-xs uppercase text-slate-400">Total Bayar</span>
+                  <span className="font-black text-xs uppercase text-slate-400">Total Tagihan</span>
                   <span className="text-xl sm:text-2xl font-black text-[#00d2d3]">{formatMoney(grandTotal)}</span>
                 </div>
               </div>
@@ -1810,13 +2171,13 @@
               {(paymentMethod === 'Cash' || paymentMethod === 'Hutang') && (
                 <div className="space-y-2">
                   <div className="flex gap-1.5">
-                    <button onClick={() => handleQuickCash(grandTotal)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200' : 'bg-slate-100'}`}>Uang Pas</button>
-                    <button onClick={() => handleQuickCash(50000)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200' : 'bg-slate-100'}`}>50k</button>
-                    <button onClick={() => handleQuickCash(100000)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200' : 'bg-slate-100'}`}>100k</button>
+                    <button onClick={() => handleQuickCash(grandTotal)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>Uang Pas</button>
+                    <button onClick={() => handleQuickCash(50000)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>50k</button>
+                    <button onClick={() => handleQuickCash(100000)} className={`flex-1 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-indigo-600' : 'bg-slate-100'}`}>100k</button>
                   </div>
                   <input 
                     type="number" 
-                    placeholder="Uang Diterima..." 
+                    placeholder="Nominal Uang Tunai..." 
                     value={cashReceived} 
                     onChange={(e) => setCashReceived(e.target.value)} 
                     className={`w-full px-3 py-2.5 rounded-xl text-sm font-black outline-none border ${
@@ -1835,9 +2196,9 @@
               <button 
                 onClick={handleCheckout} 
                 disabled={!isReadyToPay} 
-                className="w-full py-3.5 bg-gradient-to-r from-[#6366f1] to-[#a855f7] hover:brightness-110 disabled:opacity-40 text-white rounded-2xl font-black text-sm shadow-lg transition-all flex items-center justify-center gap-2 cursor-pointer"
+                className="w-full py-3.5 bg-gradient-to-r from-[#6366f1] to-[#a855f7] hover:from-indigo-600 hover:to-purple-600 disabled:opacity-40 text-white rounded-2xl font-black text-sm sm:text-base shadow-lg transition-all flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
               >
-                <Icon name="check-circle" className="w-5 h-5" /> Selesaikan & Simpan Nota
+                <Icon name="check-circle" className="w-5 h-5" /> Selesaikan & Cetak Nota
               </button>
             </div>
           </div>
@@ -1854,22 +2215,45 @@
                     <Icon name="search" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4" />
                     <input 
                       type="text" 
-                      placeholder="Cari nama produk / kode SKU..." 
+                      placeholder={isMobileDevice ? "Cari nama produk / kode SKU..." : "Cari nama / scan barcode dengan alat scanner..."} 
                       value={searchQuery} 
                       onChange={(e) => setSearchQuery(e.target.value)} 
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && searchQuery.trim()) {
+                          const clean = searchQuery.trim().toUpperCase();
+                          const found = products.find(p => (p.sku && p.sku.toUpperCase() === clean) || p.id === clean);
+                          if (found) {
+                            playScanBeep();
+                            addToCart(found);
+                            showToast(`+1 ${found.name} masuk keranjang!`);
+                            setSearchQuery('');
+                            e.preventDefault();
+                          }
+                        }
+                      }}
                       className={`w-full pl-9 pr-3 py-2.5 rounded-2xl outline-none text-xs sm:text-sm font-medium border ${
-                        theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-100 border-transparent'
+                        theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white focus:border-[#00d2d3]' : 'bg-slate-100 border-transparent focus:bg-white focus:border-indigo-500'
                       }`} 
                     />
                   </div>
 
-                  <button 
-                    onClick={() => openScanner('pos')} 
-                    className="px-3.5 py-2.5 bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white rounded-2xl font-black text-xs flex items-center gap-1.5 shadow-md cursor-pointer"
-                  >
-                    <Icon name="camera" className="w-4 h-4" />
-                    <span>Scan</span>
-                  </button>
+                  {isMobileDevice ? (
+                    <button 
+                      onClick={() => openScanner('pos')} 
+                      className="px-3.5 py-2.5 bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white rounded-2xl font-black text-xs flex items-center gap-1.5 shadow-md active:scale-95 transition-all shrink-0 cursor-pointer"
+                    >
+                      <Icon name="camera" className="w-4 h-4" />
+                      <span>Scan Kamera</span>
+                    </button>
+                  ) : (
+                    <div className={`hidden lg:flex items-center gap-1.5 px-3.5 py-2.5 rounded-2xl text-xs font-bold border shrink-0 ${
+                      theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-600'
+                    }`}>
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                      <Icon name="barcode" className="w-4 h-4 text-[#00d2d3]" />
+                      <span>Scanner USB/BT Siap</span>
+                    </div>
+                  )}
 
                   <button 
                     onClick={() => setShowDraftSaveModal(true)} 
@@ -1916,31 +2300,56 @@
               </div>
 
               <div className={`flex-1 overflow-y-auto p-3 sm:p-4 pb-28 lg:pb-4 ${theme === 'dark' ? 'bg-[#0f1228]' : 'bg-slate-50'}`}>
-                <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
                   {filteredProducts.map(product => {
-                    const isOOS = product.stock <= 0;
+                    const isOOS = product.stock === 0; const isLow = product.stock > 0 && product.stock <= 10;
                     return (
                       <button 
                         key={product.id} 
                         onClick={() => addToCart(product)} 
                         disabled={isOOS} 
-                        className={`p-4 rounded-3xl border text-left flex flex-col justify-between min-h-[135px] transition-all cursor-pointer ${
+                        className={`relative p-4 sm:p-5 rounded-3xl border text-left flex flex-col justify-between min-h-[135px] sm:min-h-[150px] transition-all active:scale-[0.98] cursor-pointer ${
                           isOOS 
                             ? 'opacity-50 cursor-not-allowed bg-slate-800/40 border-slate-700' 
-                            : (theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] hover:border-[#00d2d3]' : 'bg-white border-slate-200 shadow-sm')
+                            : (theme === 'dark' 
+                                ? 'bg-[#181b3b] border-[#2a2f60] hover:border-[#00d2d3] shadow-lg hover:shadow-cyan-500/10' 
+                                : 'bg-white border-slate-200 hover:border-indigo-500 shadow-sm')
                         }`}
                       >
-                        <div className="flex justify-between items-start">
-                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-lg ${theme === 'dark' ? 'bg-[#21254d] text-indigo-300' : 'bg-indigo-50 text-indigo-700'}`}>
+                        {isOOS && (
+                          <span className="absolute inset-0 bg-[#0f1228]/80 backdrop-blur-[2px] flex items-center justify-center rounded-3xl font-black text-rose-400 text-sm uppercase tracking-wider rotate-6 z-10">
+                            Stok Habis
+                          </span>
+                        )}
+                        
+                        <div className="flex justify-between items-start gap-2 mb-2">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-lg truncate max-w-[110px] ${
+                            theme === 'dark' ? 'bg-[#21254d] text-indigo-300' : 'bg-indigo-50 text-indigo-700'
+                          }`}>
                             {product.category}
                           </span>
-                          <span className="text-[10px] font-bold text-slate-400">Stok: {product.stock}</span>
+                          {!isOOS && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-lg shrink-0 ${
+                              isLow ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' : (theme === 'dark' ? 'bg-[#21254d] text-slate-300' : 'bg-slate-100 text-slate-600')
+                            }`}>
+                              Stok: {product.stock}
+                            </span>
+                          )}
                         </div>
-                        <div className="my-2">
-                          <h4 className="font-extrabold text-xs sm:text-sm line-clamp-2">{product.name}</h4>
-                          <p className="text-[10px] font-mono text-slate-400">{product.sku}</p>
+
+                        <div className="my-auto py-1">
+                          <h4 className={`font-extrabold text-sm sm:text-base leading-snug line-clamp-2 ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                            {product.name}
+                          </h4>
+                          <p className="text-[10px] font-mono text-slate-400 mt-0.5">{product.sku}</p>
                         </div>
-                        <p className="font-black text-sm sm:text-base text-[#00d2d3]">{formatMoney(product.price)}</p>
+
+                        <div className={`pt-2 mt-1 border-t flex items-baseline justify-between ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>
+                          <p className="font-black text-base sm:text-lg text-[#00d2d3] tracking-tight">
+                            {formatMoney(product.price)}
+                          </p>
+                          <span className="text-[10px] text-slate-400 font-bold hidden sm:inline">+ Tambah</span>
+                        </div>
                       </button>
                     );
                   })}
@@ -1948,10 +2357,16 @@
               </div>
 
               {cart.length > 0 && (
-                <div className="lg:hidden fixed bottom-16 left-3 right-3 z-30">
-                  <div onClick={() => setShowMobileCartDrawer(true)} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-3.5 rounded-3xl shadow-2xl flex items-center justify-between cursor-pointer">
-                    <span className="font-black text-sm">{totalItemCount} Item • {formatMoney(grandTotal)}</span>
-                    <span className="bg-white text-indigo-900 font-extrabold text-xs px-3 py-1.5 rounded-xl">Buka Keranjang</span>
+                <div className="lg:hidden fixed bottom-16 left-3 right-3 z-30 animate-in fade-in slide-in-from-bottom duration-200">
+                  <div onClick={() => setShowMobileCartDrawer(true)} className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-3.5 rounded-3xl shadow-2xl flex items-center justify-between cursor-pointer border border-indigo-400/30">
+                    <div className="flex items-center gap-3">
+                      <div className="bg-white/20 p-2 rounded-2xl"><Icon name="shopping-cart" className="w-5 h-5"/></div>
+                      <div>
+                        <p className="text-xs text-indigo-200 font-semibold">{totalItemCount} Item Terpilih</p>
+                        <p className="text-base font-black">{formatMoney(grandTotal)}</p>
+                      </div>
+                    </div>
+                    <span className="bg-white text-indigo-900 font-extrabold text-xs px-3.5 py-2 rounded-2xl flex items-center gap-1 shadow-md">Bayar <Icon name="chevron-right" className="w-4 h-4"/></span>
                   </div>
                 </div>
               )}
@@ -1963,7 +2378,7 @@
 
             {showMobileCartDrawer && (
               <div className="lg:hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex flex-col justify-end">
-                <div className="rounded-t-3xl h-[88vh] flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom">
+                <div className="rounded-t-3xl h-[88vh] flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-300">
                   {renderCartContent()}
                 </div>
               </div>
@@ -2046,7 +2461,7 @@
           theme === 'dark' ? 'bg-[#0f1228] text-slate-100' : 'bg-[#f4f6fb] text-slate-800'
         }`}>
           {toast.show && (
-            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 bg-slate-900/95 text-white backdrop-blur-md border border-slate-700 text-xs font-bold animate-in fade-in">
+            <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-full shadow-2xl flex items-center gap-2 bg-slate-900/95 text-white backdrop-blur-md border border-slate-700 text-xs font-bold animate-in fade-in zoom-in">
               <Icon name={toast.type === 'error' ? "alert-circle" : "check-circle"} className={`w-4 h-4 ${toast.type === 'error' ? 'text-rose-400' : 'text-emerald-400'}`} />
               <span>{toast.message}</span>
             </div>
@@ -2063,145 +2478,236 @@
                 </div>
                 <div className="overflow-hidden">
                   <h1 className={`text-base font-black tracking-tight leading-none truncate ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
-                    {licenseData?.storeName || storeSettings.name}
+                    {storeSettings.name}
                   </h1>
-                  <p className="text-[10px] font-bold text-[#00d2d3] uppercase mt-1">POSPro Terlisensi</p>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className={`w-2 h-2 rounded-full ${isCloudSyncing ? 'bg-amber-400 animate-spin' : 'bg-emerald-400 animate-pulse'}`}></span>
+                    <p className="text-[10px] font-bold text-[#00d2d3] uppercase tracking-wider">
+                      {isDemoUser ? 'MODE DEMO' : 'CLOUD SYNC AKTIF'}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
-
-            {/* Profil Sesi Toko */}
-            <div className="px-4 mb-3 space-y-2">
-              <div className={`p-3 rounded-2xl border flex flex-col gap-2 ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50'}`}>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-xs font-black">{currentUser.name}</p>
-                    <p className="text-[10px] text-emerald-400 font-bold">{licenseStatus.label}</p>
+            
+            {/* Profil Akun & Status Lisensi di Sidebar */}
+            <div className="px-4 mb-2 space-y-2">
+              <div className={`p-3.5 rounded-2xl border flex flex-col gap-2.5 transition-all ${
+                theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50 border-slate-200'
+              }`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 overflow-hidden">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-500 to-cyan-500 text-white font-black flex items-center justify-center text-xs shadow-md shrink-0">
+                      {currentUser.avatar}
+                    </div>
+                    <div className="overflow-hidden">
+                      <p className={`font-black text-xs sm:text-sm tracking-tight truncate leading-tight ${theme === 'dark' ? 'text-white' : 'text-slate-800'}`}>
+                        {currentUser.name}
+                      </p>
+                      <p className="text-[11px] text-[#00d2d3] font-mono font-bold truncate mt-0.5">
+                        {licenseData?.key || 'Mode Demo'}
+                      </p>
+                    </div>
                   </div>
-                  <button onClick={handleLogout} className="p-1.5 text-slate-400 hover:text-rose-400 rounded-lg cursor-pointer" title="Keluar / Ganti Lisensi">
+
+                  <button 
+                    onClick={handleLogout} 
+                    className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors cursor-pointer shrink-0" 
+                    title="Ganti / Keluar Lisensi"
+                  >
                     <Icon name="log-out" className="w-4 h-4" />
                   </button>
                 </div>
-                <div className="flex items-center justify-between pt-1 border-t border-slate-700/30">
-                  <span className="text-[10px] uppercase font-bold text-[#00d2d3]">{currentUser.role}</span>
-                  <button onClick={() => setShowRoleSwitcher(true)} className="text-[10px] text-indigo-400 hover:underline font-bold cursor-pointer">Ganti Role</button>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-700/30">
+                  <div className="flex items-center gap-1.5">
+                    <span className={`text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-xl border flex items-center gap-1 shadow-sm ${
+                      currentUser.role === 'owner'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                        : currentUser.role === 'admin'
+                        ? 'bg-cyan-500/20 text-[#00d2d3] border-cyan-500/30'
+                        : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/30'
+                    }`}>
+                      <span>{currentUser.role === 'owner' ? '👑 OWNER' : currentUser.role === 'admin' ? '💼 ADMIN' : '🛒 KASIR (POS)'}</span>
+                    </span>
+                  </div>
+
+                  <button 
+                    onClick={() => setShowRoleSwitcher(!showRoleSwitcher)} 
+                    className="px-2.5 py-1 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 text-white rounded-xl text-xs font-black flex items-center gap-1 shadow-md transition-all active:scale-95 cursor-pointer"
+                  >
+                    <Icon name="repeat" className="w-3 h-3" />
+                    <span>Ganti Role</span>
+                  </button>
                 </div>
+              </div>
+
+              {/* Status Masa Aktif Lisensi Sidebar */}
+              <div className={`p-2.5 rounded-2xl border flex items-center justify-between text-[11px] ${
+                theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-100 border-slate-200'
+              }`}>
+                <div className="flex items-center gap-1.5 overflow-hidden">
+                  <Icon name="shield-check" className="w-3.5 h-3.5 text-[#00d2d3] shrink-0" />
+                  <span className="truncate font-semibold text-slate-300">{licenseStatus.label}</span>
+                </div>
+                <button 
+                  onClick={() => setShowExtendLicenseModal(true)} 
+                  className="text-[#00d2d3] font-black text-[10px] hover:underline shrink-0 ml-1 cursor-pointer"
+                >
+                  Perpanjang
+                </button>
               </div>
             </div>
 
-            {/* Navigasi Menu Sidebar */}
-            <nav className="flex-1 px-3 space-y-1 overflow-y-auto">
+            <nav className="flex-1 px-3 space-y-1.5 overflow-y-auto pt-2">
               {[
                 { id: 'dashboard', icon: 'layout-dashboard', label: 'Dashboard Data', roles: ['owner', 'admin'] },
                 { id: 'pos', icon: 'calculator', label: 'Kasir (POS)', roles: ['owner', 'admin', 'kasir'] },
-                { id: 'inventory', icon: 'package', label: 'Stok & Barang', roles: ['owner', 'admin', 'kasir'] },
-                { id: 'transactions', icon: 'history', label: 'Riwayat Nota', roles: ['owner', 'admin', 'kasir'] },
+                { id: 'inventory', icon: 'package', label: 'Form Stok & Barang', roles: ['owner', 'admin', 'kasir'] },
                 { id: 'customers', icon: 'users', label: 'Pelanggan & Piutang', roles: ['owner', 'admin'] },
                 { id: 'suppliers', icon: 'truck', label: 'Supplier & Hutang', roles: ['owner'] },
                 { id: 'expenses', icon: 'receipt', label: 'Biaya Pengeluaran', roles: ['owner'] },
                 { id: 'reports', icon: 'pie-chart', label: 'Laporan Profit', roles: ['owner'] },
+                { id: 'transactions', icon: 'history', label: 'Riwayat Nota', roles: ['owner', 'admin', 'kasir'] },
                 { id: 'settings', icon: 'settings', label: 'Pengaturan Toko', roles: ['owner'] }
-              ].filter(item => item.roles.includes(currentUser.role)).map(item => (
-                <button 
-                  key={item.id} 
-                  onClick={() => setActiveTab(item.id)} 
-                  className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === item.id 
-                      ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg' 
-                      : (theme === 'dark' ? 'hover:bg-[#21254d] text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600')
-                  }`}
-                >
-                  <Icon name={item.icon} className="w-4 h-4" />
-                  <span>{item.label}</span>
-                </button>
-              ))}
+              ].filter(item => item.roles.includes(currentUser.role)).map(item => {
+                const isActive = activeTab === item.id;
+                return (
+                  <button 
+                    key={item.id} 
+                    onClick={() => setActiveTab(item.id)} 
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-xs font-bold transition-all cursor-pointer ${
+                      isActive 
+                        ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-500/20 translate-x-1' 
+                        : (theme === 'dark' ? 'hover:bg-[#21254d] text-slate-400 hover:text-white' : 'hover:bg-slate-100 text-slate-600')
+                    }`}
+                  >
+                    <Icon name={item.icon} className={`w-4 h-4 ${isActive ? 'text-[#00d2d3]' : ''}`} />
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
             </nav>
 
             <div className={`p-4 border-t ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-200'}`}>
               <button 
                 onClick={toggleTheme}
-                className={`w-full py-2 px-3 rounded-2xl border flex items-center justify-between text-xs font-bold cursor-pointer ${
-                  theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-amber-300' : 'bg-slate-100 border-slate-200 text-slate-700'
+                className={`w-full py-2.5 px-3 rounded-2xl border flex items-center justify-between text-xs font-bold transition-all cursor-pointer ${
+                  theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-amber-300 hover:bg-[#282d5e]' : 'bg-slate-100 border-slate-200 text-slate-700'
                 }`}
               >
                 <span className="flex items-center gap-2">
                   <Icon name={theme === 'dark' ? "sun" : "moon"} className="w-4 h-4 text-amber-400" />
                   <span>{theme === 'dark' ? 'Mode Terang' : 'Mode Gelap'}</span>
                 </span>
+                <span className="text-[10px] uppercase opacity-70">{theme}</span>
               </button>
             </div>
           </div>
 
-          {}
           <div className="flex-1 flex flex-col h-screen overflow-hidden">
             {/* Topbar Mobile */}
-            <div className={`lg:hidden px-4 py-3 flex items-center justify-between shadow-md z-20 border-b ${
+            <div className={`lg:hidden px-4 py-3 flex items-center justify-between shadow-md z-20 shrink-0 border-b ${
               theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200 text-slate-800'
             }`}>
-              <div>
-                <h1 className="text-xs font-black truncate max-w-[150px]">{licenseData?.storeName || storeSettings.name}</h1>
-                <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{licenseStatus.label}</span>
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center font-black text-xs text-white shrink-0">
+                  {currentUser.avatar}
+                </div>
+                <div className="overflow-hidden">
+                  <h1 className="text-xs font-black tracking-tight leading-none truncate max-w-[130px]">{storeSettings.name}</h1>
+                  <span className="text-[9px] text-[#00d2d3] font-bold uppercase">{isDemoUser ? 'Demo' : 'Live Sync'}</span>
+                </div>
               </div>
               <div className="flex items-center gap-1.5">
-                <button onClick={toggleTheme} className="p-2 rounded-xl border border-slate-700 text-amber-300 cursor-pointer">
+                <button 
+                  onClick={toggleTheme} 
+                  className={`p-2 rounded-xl border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-amber-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}
+                  title="Ganti Tema"
+                >
                   <Icon name={theme === 'dark' ? "sun" : "moon"} className="w-4 h-4" />
                 </button>
-                <button onClick={() => setShowRoleSwitcher(true)} className="px-2.5 py-1.5 bg-[#21254d] border border-[#2a2f60] text-[#00d2d3] rounded-xl text-xs font-bold cursor-pointer">
-                  {currentUser.role.toUpperCase()}
+                <button 
+                  onClick={() => setShowRoleSwitcher(true)} 
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black border flex items-center gap-1 shadow-sm cursor-pointer ${
+                    currentUser.role === 'owner'
+                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                      : currentUser.role === 'admin'
+                      ? 'bg-cyan-500/20 text-[#00d2d3] border-cyan-500/40'
+                      : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                  }`}
+                >
+                  <Icon name="user-check" className="w-3.5 h-3.5" />
+                  <span>{currentUser.role.toUpperCase()}</span>
                 </button>
-                <button onClick={handleLogout} className="p-2 text-rose-400 bg-rose-500/10 rounded-xl cursor-pointer">
+                <button 
+                  onClick={handleLogout} 
+                  className="p-2 text-rose-400 bg-rose-500/10 rounded-xl cursor-pointer" 
+                  title="Keluar Akun"
+                >
                   <Icon name="log-out" className="w-4 h-4" />
                 </button>
               </div>
             </div>
 
-            {/* Navigasi Mobile Bar */}
             <div className={`lg:hidden px-2 py-2 z-20 shrink-0 border-b shadow-sm overflow-x-auto no-scrollbar ${
-              theme === 'dark' ? 'bg-[#181b3b]' : 'bg-white'
+              theme === 'dark' ? 'bg-[#181b3b]/98 border-[#2a2f60]' : 'bg-white/98 border-slate-200'
             }`}>
               <div className="flex gap-1.5 w-max min-w-full items-center">
                 {[
                   { id: 'dashboard', icon: 'layout-grid', label: 'Dashboard', roles: ['owner', 'admin'] },
                   { id: 'pos', icon: 'calculator', label: 'Kasir', roles: ['owner', 'admin', 'kasir'] },
-                  { id: 'inventory', icon: 'package', label: 'Barang', roles: ['owner', 'admin', 'kasir'] },
-                  { id: 'transactions', icon: 'history', label: 'Riwayat', roles: ['owner', 'admin', 'kasir'] },
+                  { id: 'inventory', icon: 'package', label: 'Produk', roles: ['owner', 'admin', 'kasir'] },
                   { id: 'customers', icon: 'users', label: 'Pelanggan', roles: ['owner', 'admin'] },
                   { id: 'suppliers', icon: 'truck', label: 'Supplier', roles: ['owner'] },
-                  { id: 'expenses', icon: 'receipt', label: 'Beban', roles: ['owner'] },
+                  { id: 'expenses', icon: 'receipt', label: 'Pengeluaran', roles: ['owner'] },
+                  { id: 'transactions', icon: 'history', label: 'Riwayat', roles: ['owner', 'admin', 'kasir'] },
                   { id: 'reports', icon: 'pie-chart', label: 'Laporan', roles: ['owner'] },
                   { id: 'settings', icon: 'settings', label: 'Toko', roles: ['owner'] }
-                ].filter(item => item.roles.includes(currentUser.role)).map(item => (
-                  <button
-                    key={item.id}
-                    onClick={() => setActiveTab(item.id)}
-                    className={`flex flex-col items-center justify-center py-2 px-3 min-w-[65px] rounded-2xl transition-all cursor-pointer ${
-                      activeTab === item.id 
-                        ? 'bg-[#21254d] border border-[#00d2d3] text-[#00d2d3]' 
-                        : 'text-slate-400 hover:text-slate-200'
-                    }`}
-                  >
-                    <Icon name={item.icon} className="w-4 h-4" />
-                    <span className="text-[10px] font-bold mt-1">{item.label}</span>
-                  </button>
-                ))}
+                ].filter(item => item.roles.includes(currentUser.role)).map(item => {
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className={`flex flex-col items-center justify-center py-2 px-3 min-w-[70px] rounded-2xl transition-all cursor-pointer ${
+                        isActive
+                          ? (theme === 'dark' 
+                              ? 'bg-[#21254d] border-2 border-[#00d2d3] shadow-md shadow-cyan-500/20 text-[#00d2d3]' 
+                              : 'bg-indigo-50 border-2 border-indigo-600 shadow-sm text-indigo-600')
+                          : (theme === 'dark' 
+                              ? 'text-slate-400 hover:text-slate-200 border-2 border-transparent' 
+                              : 'text-slate-500 hover:text-slate-800 border-2 border-transparent')
+                      }`}
+                    >
+                      <Icon 
+                        name={item.icon} 
+                        className={`w-4 h-4 ${isActive ? (theme === 'dark' ? 'text-[#00d2d3]' : 'text-indigo-600') : ''}`} 
+                      />
+                      <span className={`text-[10px] font-bold mt-1 tracking-tight truncate w-full text-center ${
+                        isActive ? (theme === 'dark' ? 'text-[#00d2d3]' : 'text-indigo-600') : ''
+                      }`}>
+                        {item.label}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* Tab Body Content */}
             <div className="flex-1 overflow-y-auto">
               {activeTab === 'dashboard' && currentUser.role !== 'kasir' && renderDashboard()}
               {activeTab === 'pos' && renderPOS()}
               {activeTab === 'reports' && currentUser.role === 'owner' && renderReports()}
 
-              {}
               {activeTab === 'inventory' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className={`p-4 sm:p-6 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200 text-slate-800'
                   }`}>
                     <div>
-                      <h2 className="text-xl sm:text-2xl font-black">Katalog Produk & Stok</h2>
-                      <p className="text-xs text-slate-400">Kelola stok dan tambah stok cepat dengan scan barcode.</p>
+                      <h2 className="text-xl sm:text-2xl font-black tracking-tight">Katalog Produk & Stok</h2>
+                      <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Kelola stok dan tambah stok cepat dengan scan barcode.</p>
                     </div>
                     <div className="flex flex-wrap gap-2 w-full sm:w-auto">
                       <button 
@@ -2221,22 +2727,22 @@
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {products.map(p => (
-                      <div key={p.id} className={`p-4 rounded-3xl border shadow-sm flex flex-col justify-between ${
+                      <div key={p.id} className={`p-4 rounded-3xl border shadow-sm flex flex-col justify-between transition-all ${
                         theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200 text-slate-800'
                       }`}>
                         <div>
                           <div className="flex justify-between items-start">
-                            <span className="text-[10px] font-mono px-2 py-0.5 rounded-lg bg-slate-800 text-slate-300 font-bold">{p.sku}</span>
+                            <span className={`text-[10px] font-mono px-2 py-0.5 rounded-lg font-bold ${theme === 'dark' ? 'bg-[#21254d] text-slate-300' : 'bg-slate-100 text-slate-600'}`}>{p.sku}</span>
                             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${p.stock === 0 ? 'bg-rose-500/20 text-rose-400' : p.stock <= 10 ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'}`}>Stok: {p.stock}</span>
                           </div>
-                          <h4 className="font-extrabold text-sm mt-2">{p.name}</h4>
+                          <h4 className="font-extrabold text-sm mt-2.5">{p.name}</h4>
                           <p className="text-xs font-black text-[#00d2d3] mt-1">{formatMoney(p.price)}</p>
                           {currentUser.role === 'owner' && <p className="text-[10px] text-slate-400 mt-0.5">Modal: {formatMoney(p.costPrice)}</p>}
                         </div>
                         {currentUser.role !== 'kasir' && (
-                          <div className="flex justify-end gap-2 mt-3 pt-2 border-t border-slate-700/50">
-                            <button onClick={() => { setEditingProduct(p); setProductForm(p); setIsProductModalOpen(true); }} className="p-2 bg-indigo-500/10 text-[#00d2d3] rounded-xl text-xs font-bold cursor-pointer">Edit</button>
-                            <button onClick={() => handleDeleteProduct(p.id)} className="p-2 text-rose-400 bg-rose-500/10 rounded-xl text-xs font-bold cursor-pointer">Hapus</button>
+                          <div className={`flex justify-end gap-2 mt-3 pt-2.5 border-t ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>
+                            <button onClick={() => { setEditingProduct(p); setProductForm(p); setIsProductModalOpen(true); }} className={`p-2 rounded-xl text-xs font-bold flex items-center gap-1 border cursor-pointer ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-[#00d2d3]' : 'bg-indigo-50 text-indigo-600'}`}><Icon name="edit" className="w-3.5 h-3.5"/> Edit</button>
+                            <button onClick={() => handleDeleteProduct(p.id)} className="p-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs font-bold cursor-pointer"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
                           </div>
                         )}
                       </div>
@@ -2245,30 +2751,30 @@
                 </div>
               )}
 
-              {}
               {activeTab === 'transactions' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className={`p-4 sm:p-6 rounded-3xl border ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
                     <h2 className="text-xl font-black">Riwayat Transaksi Penjualan</h2>
-                    <p className="text-xs text-slate-400">Seluruh struk tercatat aman di akun toko Anda.</p>
+                    <p className={`text-xs mt-0.5 ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>Daftar seluruh struk dan nota kasir tersinkronisasi antar perangkat.</p>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {transactions.length === 0 ? (<p className="text-center py-12 text-slate-400 text-xs col-span-full">Belum ada transaksi.</p>) : (
                       transactions.map(trx => (
                         <div key={trx.id} className={`p-4 rounded-3xl border shadow-sm transition-all relative group ${
-                          theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] hover:border-[#00d2d3]' : 'bg-white border-slate-200'
+                          theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] hover:border-[#00d2d3]' : 'bg-white border-slate-200 hover:border-indigo-400'
                         }`}>
                           <div onClick={() => setViewingTransaction(trx)} className="cursor-pointer">
                             <div className="flex justify-between items-start">
-                              <span className="font-extrabold text-xs text-[#00d2d3] bg-cyan-500/10 px-2 py-0.5 rounded-lg">{trx.id}</span>
+                              <span className="font-extrabold text-xs text-[#00d2d3] bg-cyan-500/10 border border-cyan-500/20 px-2 py-0.5 rounded-lg">{trx.id}</span>
                               <span className="text-[10px] text-slate-400">{trx.date}</span>
                             </div>
                             <p className="text-lg font-black mt-2 text-white">{formatMoney(trx.total)}</p>
-                            <div className="flex justify-between text-xs mt-2 pt-2 border-t border-slate-700/50 text-slate-400">
+                            <div className={`flex justify-between items-center text-xs mt-2 pt-2 border-t ${theme === 'dark' ? 'border-[#2a2f60] text-slate-400' : 'border-slate-100 text-slate-500'}`}>
                               <span>{trx.customerName || 'Umum'}</span>
                               <span className="font-bold">{trx.paymentMethod || 'Cash'}</span>
                             </div>
                           </div>
+                          
                           {currentUser.role === 'owner' && (
                             <div className="absolute top-3 right-3">
                               <button 
@@ -2290,7 +2796,6 @@
                 </div>
               )}
 
-              {}
               {activeTab === 'customers' && currentUser.role !== 'kasir' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className={`p-4 sm:p-6 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
@@ -2398,7 +2903,6 @@
                 </div>
               )}
 
-              {}
               {activeTab === 'suppliers' && currentUser.role === 'owner' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-7xl mx-auto space-y-4">
                   <div className={`p-4 sm:p-6 rounded-3xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'}`}>
@@ -2539,49 +3043,95 @@
                 </div>
               )}
 
-              {}
+              {/* Pengaturan Toko & Informasi Lisensi */}
               {activeTab === 'settings' && currentUser.role === 'owner' && (
                 <div className="p-3 sm:p-6 pb-28 lg:pb-8 max-w-4xl mx-auto space-y-4">
+                  {/* Kartu Informasi Lisensi */}
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <div className="flex items-center justify-between">
                       <h3 className="font-extrabold text-sm flex items-center gap-2">
-                        <Icon name="shield-check" className="w-4 h-4 text-[#00d2d3]"/> Status Lisensi Toko
+                        <Icon name="shield-check" className="w-4 h-4 text-[#00d2d3]"/> Status Lisensi POSPro
                       </h3>
-                      <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-xs font-bold">
+                      <span className="px-2.5 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 rounded-full text-[11px] font-bold">
                         {licenseStatus.label}
                       </span>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-2">
-                      <div className="p-3 bg-[#0f1228] border border-[#2a2f60] rounded-2xl">
-                        <p className="text-slate-400 text-[10px]">Nama Toko Terdaftar</p>
-                        <p className="font-bold mt-0.5">{licenseData?.storeName || storeSettings.name}</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 text-xs">
+                      <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                        <p className="text-slate-400 text-[10px]">Pemilik Lisensi</p>
+                        <p className="font-bold mt-0.5">{licenseData?.ownerName || 'Pemilik Toko'}</p>
                       </div>
-                      <div className="p-3 bg-[#0f1228] border border-[#2a2f60] rounded-2xl">
-                        <p className="text-slate-400 text-[10px]">Vault ID Akun</p>
-                        <p className="font-mono text-[#00d2d3] font-bold mt-0.5">{licenseData?.vaultId || 'Local'}</p>
+                      <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                        <p className="text-slate-400 text-[10px]">Kode Lisensi Terpasang</p>
+                        <p className="font-mono font-bold text-[#00d2d3] mt-0.5 truncate">{licenseData?.key || '-'}</p>
+                      </div>
+                      <div className={`p-3 rounded-2xl border ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                        <p className="text-slate-400 text-[10px]">Masa Berlaku</p>
+                        <p className="font-bold text-amber-400 mt-0.5">{licenseStatus.label}</p>
                       </div>
                     </div>
-                    <button onClick={() => setShowExtendModal(true)} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black text-xs shadow-md cursor-pointer">
-                      + Masukkan Kode Perpanjangan Lisensi
-                    </button>
+                    <div className="pt-2 flex justify-end">
+                      <button 
+                        onClick={() => setShowExtendLicenseModal(true)} 
+                        className="py-2.5 px-4 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold text-xs rounded-xl shadow-md cursor-pointer hover:brightness-110"
+                      >
+                        + Perpanjang / Ganti Lisensi
+                      </button>
+                    </div>
                   </div>
 
                   <div className={`p-4 sm:p-6 rounded-3xl border space-y-3 ${
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
-                    <h3 className="font-extrabold text-sm flex items-center gap-2">
-                      <Icon name="download" className="w-4 h-4 text-[#00d2d3]"/> Cadangan File Toko (.JSON)
-                    </h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2 text-xs">
-                      <button onClick={handleBackupDatabase} className="py-3 px-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-bold rounded-2xl shadow-md cursor-pointer flex items-center justify-center gap-1.5">
-                        <Icon name="download" className="w-4 h-4"/> Download Cadangan Data (.json)
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-extrabold text-sm flex items-center gap-2">
+                        <Icon name="download" className="w-4 h-4 text-[#00d2d3]"/> Cadangan File Lokal (.JSON)
+                      </h3>
+                      {isDemoUser && (
+                        <span className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded-full font-bold">
+                          Terkunci di Mode Demo
+                        </span>
+                      )}
+                    </div>
+                    <p className={`text-xs ${theme === 'dark' ? 'text-slate-400' : 'text-slate-500'}`}>
+                      {isDemoUser 
+                        ? 'Fitur unduh dan simpan file cadangan lokal dinonaktifkan pada Mode Demo. Silakan aktivasi lisensi resmi untuk mengamankan data.' 
+                        : 'Unduh seluruh data toko ke file cadangan atau pulihkan data kapan saja.'}
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+                      <button 
+                        onClick={handleBackupDatabase} 
+                        disabled={isDemoUser}
+                        className={`py-2.5 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md transition-all ${
+                          isDemoUser 
+                            ? 'bg-slate-800/80 text-slate-400 border border-slate-700 cursor-not-allowed opacity-60' 
+                            : 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white cursor-pointer hover:brightness-110'
+                        }`}
+                      >
+                        <Icon name={isDemoUser ? "lock" : "download"} className="w-4 h-4"/> 
+                        <span>{isDemoUser ? 'Download Terkunci (Mode Demo)' : 'Download Backup (.json)'}</span>
                       </button>
-                      <label className="py-3 px-3 bg-[#21254d] border border-[#2a2f60] text-slate-200 font-bold rounded-2xl cursor-pointer text-center flex items-center justify-center gap-1.5">
-                        <Icon name="upload" className="w-4 h-4 text-[#00d2d3]"/> Pulihkan Data (.json)
-                        <input ref={fileInputRef} type="file" accept=".json" onChange={handleRestoreDatabase} className="hidden" />
-                      </label>
+                      {isDemoUser ? (
+                        <button 
+                          onClick={() => showToast('Fitur pulihkan cadangan dinonaktifkan di Mode Demo!', 'error')} 
+                          className={`py-2.5 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 border cursor-not-allowed opacity-60 ${
+                            theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-400'
+                          }`}
+                        >
+                          <Icon name="lock" className="w-4 h-4 text-slate-400"/> 
+                          <span>Pulihkan Data Terkunci</span>
+                        </button>
+                      ) : (
+                        <label className={`py-2.5 px-3 rounded-2xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer text-center border ${
+                          theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-200 hover:bg-[#282d5e]' : 'bg-slate-100 border-slate-200 hover:bg-slate-200'
+                        }`}>
+                          <Icon name="upload" className="w-4 h-4 text-[#00d2d3]"/> 
+                          <span>Pulihkan Data</span>
+                          <input ref={fileInputRef} type="file" accept=".json" onChange={handleRestoreDatabase} className="hidden" />
+                        </label>
+                      )}
                     </div>
                   </div>
 
@@ -2589,7 +3139,7 @@
                     theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
                   }`}>
                     <h3 className={`font-extrabold text-sm border-b pb-2 ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}>Identitas Toko & Nota</h3>
-                    <form onSubmit={(e) => { e.preventDefault(); showToast('Pengaturan toko berhasil disimpan!'); }} className="space-y-3 text-xs">
+                    <form onSubmit={(e) => { e.preventDefault(); showToast('Pengaturan toko disimpan!'); }} className="space-y-3 text-xs">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                           <label className="font-bold text-slate-400 mb-1 block">Nama Toko *</label>
@@ -2598,16 +3148,6 @@
                         <div>
                           <label className="font-bold text-slate-400 mb-1 block">Tagline / Slogan</label>
                           <input type="text" value={storeSettings.tagline} onChange={(e) => setStoreSettings({...storeSettings, tagline: e.target.value})} className={`w-full px-3 py-2.5 rounded-xl border outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="font-bold text-slate-400 mb-1 block">No. Telepon Toko</label>
-                          <input type="text" value={storeSettings.phone} onChange={(e) => setStoreSettings({...storeSettings, phone: e.target.value})} className={`w-full px-3 py-2.5 rounded-xl border outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} />
-                        </div>
-                        <div>
-                          <label className="font-bold text-slate-400 mb-1 block">Alamat Toko</label>
-                          <input type="text" value={storeSettings.address} onChange={(e) => setStoreSettings({...storeSettings, address: e.target.value})} className={`w-full px-3 py-2.5 rounded-xl border outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} />
                         </div>
                       </div>
                       <button type="submit" className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black shadow-md cursor-pointer">
@@ -2620,9 +3160,7 @@
             </div>
           </div>
 
-          {}
-          {/* Modal Perpanjang Lisensi */}
-          {showExtendModal && (
+          {showExtendLicenseModal && (
             <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
               <div className={`rounded-3xl w-full max-w-md p-6 space-y-4 border shadow-2xl ${
                 theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200 text-slate-800'
@@ -2631,269 +3169,79 @@
                   <h3 className="font-black text-sm flex items-center gap-2">
                     <Icon name="key-round" className="w-4 h-4 text-[#00d2d3]" /> Perpanjang Masa Lisensi Toko
                   </h3>
-                  <button onClick={() => setShowExtendModal(false)} className="cursor-pointer">
+                  <button onClick={() => { setShowExtendLicenseModal(false); setLicenseError(''); setExtendLicenseKeyInput(''); }} className="cursor-pointer">
                     <Icon name="x" className="w-5 h-5 text-slate-400" />
                   </button>
                 </div>
+
                 <form onSubmit={handleExtendLicense} className="space-y-3.5 text-xs">
                   <div>
-                    <label className="font-bold text-slate-400 block mb-1">Toko:</label>
-                    <p className="p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-bold">{licenseData?.storeName || storeSettings.name}</p>
+                    <label className="font-bold text-slate-400 block mb-1">Nama Toko Terdaftar:</label>
+                    <p className="p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-bold text-slate-200">
+                      {licenseData?.ownerName || storeSettings.name}
+                    </p>
                   </div>
                   <div>
-                    <label className="font-bold text-slate-400 block mb-1">Kode Lisensi Baru (Google Sheets):</label>
+                    <label className="font-bold text-slate-400 block mb-1">Kode Lisensi Perpanjangan (Google Sheets):</label>
                     <input 
                       type="text" 
                       required 
-                      placeholder="POS-30D-XXXX-YYYY" 
-                      value={extendInputKey} 
-                      onChange={(e) => setExtendInputKey(e.target.value.toUpperCase())} 
-                      className="w-full p-3.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-[#00d2d3] font-mono font-black text-center tracking-wider" 
+                      placeholder="POS-30D-XXXXX-YYYY" 
+                      value={extendLicenseKeyInput} 
+                      onChange={(e) => setExtendLicenseKeyInput(e.target.value.toUpperCase())} 
+                      className={`w-full p-3.5 rounded-xl border text-center font-mono font-black text-sm sm:text-base outline-none tracking-wider text-[#00d2d3] ${
+                        theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'
+                      }`} 
                     />
                   </div>
-                  <button type="submit" disabled={isExtendingLicense} className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl shadow-lg cursor-pointer">
-                    {isExtendingLicense ? 'Memperbarui di Google Sheets...' : 'Terapkan Perpanjangan'}
+                  <button 
+                    type="submit" 
+                    disabled={isExtendingLicense}
+                    className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:brightness-110 disabled:opacity-50 text-white font-black rounded-2xl text-xs shadow-lg cursor-pointer flex items-center justify-center gap-2"
+                  >
+                    {isExtendingLicense ? (
+                      <>
+                        <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                        <span>Memproses Perpanjangan...</span>
+                      </>
+                    ) : (
+                      <span>Terapkan Lisensi Perpanjangan</span>
+                    )}
                   </button>
                 </form>
               </div>
             </div>
           )}
 
-          {/* Modal Barcode Camera Scanner */}
+          {/* Modal Scanner Barcode Kamera */}
           {scannerModal.isOpen && (
             <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-50 flex items-center justify-center p-3 animate-in fade-in">
               <div className="bg-[#181b3b] border border-[#2a2f60] rounded-3xl w-full max-w-md overflow-hidden shadow-2xl flex flex-col relative">
                 <div className="p-4 border-b border-[#2a2f60] flex items-center justify-between text-white">
-                  <span className="font-black text-sm flex items-center gap-2"><Icon name="camera" className="w-4 h-4 text-[#00d2d3]"/> Scanner Barcode Kamera</span>
-                  <button onClick={closeScannerModal} className="p-1 text-slate-400 hover:text-white cursor-pointer"><Icon name="x" className="w-5 h-5"/></button>
+                  <div className="flex items-center gap-2">
+                    <Icon name="camera" className="w-5 h-5 text-[#00d2d3]" />
+                    <span className="font-black text-sm">Pemindai Barcode Kamera</span>
+                  </div>
+                  <button onClick={closeScannerModal} className="p-1 text-slate-400 hover:text-white rounded-lg cursor-pointer">
+                    <Icon name="x" className="w-5 h-5" />
+                  </button>
                 </div>
+
                 <div className="relative aspect-square w-full bg-black flex items-center justify-center overflow-hidden">
                   <div id="scanner-reader" className="w-full h-full"></div>
                   <div className="scanner-laser-line"></div>
                 </div>
-              </div>
-            </div>
-          )}
 
-          {/* Modal Nota Transaksi */}
-          {viewingTransaction && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-              <div className="rounded-t-3xl sm:rounded-3xl w-full max-w-md bg-[#181b3b] border border-[#2a2f60] text-white max-h-[90vh] flex flex-col overflow-hidden shadow-2xl">
-                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center">
-                  <h3 className="font-black text-sm">Nota #{viewingTransaction.id}</h3>
-                  <button onClick={() => setViewingTransaction(null)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button>
-                </div>
-                <div className="p-5 overflow-y-auto space-y-3 text-xs">
-                  <div className="text-center pb-2 border-b border-dashed border-[#2a2f60]">
-                    <h4 className="font-black text-sm uppercase">{licenseData?.storeName || storeSettings.name}</h4>
-                    <p className="text-slate-400 text-[10px]">{viewingTransaction.date} • Kasir: {viewingTransaction.cashier}</p>
+                {scannerModal.feedback && (
+                  <div className={`p-4 border-t text-xs flex flex-col gap-1 ${
+                    scannerModal.feedback.type === 'success' ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300' :
+                    scannerModal.feedback.type === 'warning' ? 'bg-amber-500/20 border-amber-500/30 text-amber-300' :
+                    'bg-rose-500/20 border-rose-500/30 text-rose-300'
+                  }`}>
+                    <p className="font-black text-sm">{scannerModal.feedback.title}</p>
+                    <p>{scannerModal.feedback.desc}</p>
                   </div>
-                  <div className="space-y-1 border-b border-dashed border-[#2a2f60] pb-2">
-                    {(viewingTransaction.items || []).map((i, idx) => (
-                      <div key={idx} className="flex justify-between">
-                        <span>{i.product.name} ({i.qty}x)</span>
-                        <span className="font-bold">{formatMoney((i.product.price - (Number(i.discountRp)||0)) * i.qty)}</span>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between font-bold"><span>Total:</span><span className="text-[#00d2d3] font-black">{formatMoney(viewingTransaction.total)}</span></div>
-                  {viewingTransaction.paymentMethod === 'Cash' && (
-                    <div className="flex justify-between text-[11px] text-emerald-400">
-                      <span>Kembalian:</span>
-                      <span className="font-bold">{formatMoney(viewingTransaction.change)}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="p-3 border-t border-[#2a2f60] grid grid-cols-3 gap-2">
-                  <button onClick={() => {
-                    let text = `*NOTA - ${storeSettings.name}*\nNo: ${viewingTransaction.id}\nTotal: ${formatMoney(viewingTransaction.total)}\n\nTerima kasih!`;
-                    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
-                  }} className="py-2.5 bg-emerald-600 text-white rounded-xl font-bold text-xs cursor-pointer flex items-center justify-center gap-1"><Icon name="message-circle" className="w-3.5 h-3.5"/> WA</button>
-                  <button onClick={() => window.print()} className="py-2.5 bg-indigo-600 text-white rounded-xl font-bold text-xs cursor-pointer flex items-center justify-center gap-1"><Icon name="printer" className="w-3.5 h-3.5"/> Cetak</button>
-                  <button onClick={() => setViewingTransaction(null)} className="py-2.5 bg-[#21254d] text-white rounded-xl font-bold text-xs cursor-pointer">Tutup</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Modal Konfirmasi Hapus Transaksi (Owner Only) */}
-          {deleteTransactionModal.show && deleteTransactionModal.transaction && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className={`rounded-3xl w-full max-w-sm p-6 space-y-4 border shadow-2xl ${
-                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
-              }`}>
-                <div className="w-12 h-12 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto border border-rose-500/30">
-                  <Icon name="trash-2" className="w-6 h-6" />
-                </div>
-                <div className="text-center space-y-1">
-                  <h3 className="font-black text-base">Hapus Riwayat Nota #{deleteTransactionModal.transaction.id}?</h3>
-                  <p className="text-xs text-slate-400">Total: <span className="text-[#00d2d3] font-bold">{formatMoney(deleteTransactionModal.transaction.total)}</span></p>
-                </div>
-
-                <div className={`p-3 rounded-2xl border text-xs space-y-2 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
-                  <label className="flex items-center gap-2.5 cursor-pointer">
-                    <input 
-                      type="checkbox" 
-                      checked={deleteTransactionModal.restoreStock} 
-                      onChange={(e) => setDeleteTransactionModal({ ...deleteTransactionModal, restoreStock: e.target.checked })} 
-                      className="rounded accent-indigo-600 w-4 h-4"
-                    />
-                    <span className="font-semibold text-slate-300">Kembalikan stok barang yang terjual ke inventaris</span>
-                  </label>
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 pt-2">
-                  <button 
-                    onClick={() => setDeleteTransactionModal({ show: false, transaction: null, restoreStock: true })} 
-                    className={`py-3 rounded-2xl font-bold text-xs border cursor-pointer ${
-                      theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    Batal
-                  </button>
-                  <button 
-                    onClick={() => handleDeleteTransaction(deleteTransactionModal.transaction, deleteTransactionModal.restoreStock)} 
-                    className="py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-lg shadow-rose-500/20 cursor-pointer"
-                  >
-                    Ya, Hapus Nota
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Modal Form Tambah/Edit Produk */}
-          {isProductModalOpen && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="rounded-3xl w-full max-w-md bg-[#181b3b] border border-[#2a2f60] text-white p-5 space-y-3 shadow-2xl">
-                <div className="flex justify-between items-center"><h3 className="font-black text-sm">{editingProduct ? 'Edit Barang' : 'Tambah Produk'}</h3><button onClick={() => setIsProductModalOpen(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
-                <form onSubmit={handleSaveProduct} className="space-y-3 text-xs">
-                  <div>
-                    <label className="font-bold text-slate-400 mb-1 block">Barcode / SKU</label>
-                    <div className="flex gap-2">
-                      <input type="text" placeholder="SKU Barcode" value={productForm.sku} onChange={(e) => setProductForm({...productForm, sku: e.target.value})} className="flex-1 p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl outline-none" />
-                      <button type="button" onClick={() => openScanner('product_form')} className="px-3 py-2 bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white font-bold rounded-xl flex items-center gap-1 cursor-pointer"><Icon name="camera" className="w-4 h-4"/><span>Scan</span></button>
-                    </div>
-                  </div>
-                  <div><label className="font-bold text-slate-400 mb-1 block">Nama Barang *</label><input type="text" required placeholder="Nama Produk" value={productForm.name} onChange={(e) => setProductForm({...productForm, name: e.target.value})} className="w-full p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl outline-none" /></div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><label className="font-bold text-slate-400 mb-1 block">Kategori</label><input type="text" required value={productForm.category} onChange={(e) => setProductForm({...productForm, category: e.target.value})} className="w-full p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl outline-none" /></div>
-                    <div><label className="font-bold text-slate-400 mb-1 block">Stok</label><input type="number" required value={productForm.stock} onChange={(e) => setProductForm({...productForm, stock: e.target.value})} className="w-full p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl outline-none" /></div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div><label className="font-bold text-slate-400 mb-1 block">Harga Jual (Rp) *</label><input type="number" required value={productForm.price} onChange={(e) => setProductForm({...productForm, price: e.target.value})} className="w-full p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-bold text-[#00d2d3] outline-none" /></div>
-                    <div><label className="font-bold text-slate-400 mb-1 block">Harga Pokok (Rp)</label><input type="number" required value={productForm.costPrice} onChange={(e) => setProductForm({...productForm, costPrice: e.target.value})} className="w-full p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl outline-none" /></div>
-                  </div>
-                  <button type="submit" disabled={isSaving} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">Simpan Produk</button>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* Modal Restock */}
-          {showRestockModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
-                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
-              }`}>
-                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center bg-emerald-500/20 text-emerald-400"><h3 className="font-black text-sm flex items-center gap-1.5"><Icon name="plus" className="w-4 h-4"/> Stok Masuk & Tagihan</h3><button onClick={() => setShowRestockModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
-                <form onSubmit={handleSaveRestock} className="p-4 overflow-y-auto space-y-3 text-xs">
-                  <div><label className="font-bold text-slate-400 mb-1 block">Nama Supplier *</label><input type="text" required placeholder="Contoh: Toko Grosir Jaya" value={restockForm.supplier} onChange={(e) => setRestockForm({...restockForm, supplier: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
-                  <div className="space-y-2">
-                    <label className="font-bold text-slate-400 block">Daftar Barang Masuk:</label>
-                    {restockForm.items.map((it, idx) => (
-                      <div key={idx} className="flex gap-2 items-center">
-                        <select required value={it.productId} onChange={(e) => updateDynamicList(restockForm, setRestockForm, idx, 'productId', e.target.value)} className={`flex-1 p-2.5 border rounded-xl text-xs outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`}><option value="">-- Pilih Barang --</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-                        <input type="number" required min="1" placeholder="Qty" value={it.qty} onChange={(e) => updateDynamicList(restockForm, setRestockForm, idx, 'qty', e.target.value)} className={`w-16 p-2.5 border rounded-xl text-center text-xs font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
-                      </div>
-                    ))}
-                    <button type="button" onClick={() => addRowDynamicList(restockForm, setRestockForm)} className="text-[11px] font-bold text-[#00d2d3] cursor-pointer">+ Tambah Baris</button>
-                  </div>
-                  <button type="submit" className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">Simpan Stok Masuk</button>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* Modal Stok Keluar / Rusak */}
-          {showStockOutModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
-                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
-              }`}>
-                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center bg-rose-500/20 text-rose-400"><h3 className="font-black text-sm flex items-center gap-1.5"><Icon name="minus" className="w-4 h-4"/> Stok Keluar / Rusak</h3><button onClick={() => setShowStockOutModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
-                <form onSubmit={handleSaveStockOut} className="p-4 overflow-y-auto space-y-3 text-xs">
-                  <div><label className="font-bold text-slate-400 mb-1 block">Alasan Pengurangan Stok *</label><input type="text" required placeholder="Contoh: Barang kadaluarsa / pecah" value={stockOutForm.reason} onChange={(e) => setStockOutForm({...stockOutForm, reason: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
-                  <div className="space-y-2">
-                    <label className="font-bold text-slate-400 block">Daftar Barang Keluar:</label>
-                    {stockOutForm.items.map((it, idx) => (
-                      <div key={idx} className="flex gap-2 items-center">
-                        <select required value={it.productId} onChange={(e) => updateDynamicList(stockOutForm, setStockOutForm, idx, 'productId', e.target.value)} className={`flex-1 p-2.5 border rounded-xl text-xs outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`}><option value="">-- Pilih Barang --</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
-                        <input type="number" required min="1" placeholder="Qty" value={it.qty} onChange={(e) => updateDynamicList(stockOutForm, setStockOutForm, idx, 'qty', e.target.value)} className={`w-16 p-2.5 border rounded-xl text-center text-xs font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
-                      </div>
-                    ))}
-                    <button type="button" onClick={() => addRowDynamicList(stockOutForm, setStockOutForm)} className="text-[11px] font-bold text-[#00d2d3] cursor-pointer">+ Tambah Baris</button>
-                  </div>
-                  <button type="submit" className="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">Kurangi Stok</button>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* Modal Pengeluaran / Beban */}
-          {isExpenseModalOpen && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
-                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'
-              }`}>
-                <div className={`p-4 border-b flex justify-between items-center ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}><h3 className="font-black text-sm">Catat Pengeluaran</h3><button onClick={() => setIsExpenseModalOpen(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
-                <form onSubmit={handleSaveExpense} className="p-4 space-y-3 text-xs">
-                  <div><label className="font-bold text-slate-400 mb-1 block">Kategori</label><select value={expenseForm.category} onChange={(e) => setExpenseForm({...expenseForm, category: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`}><option value="Listrik">⚡ Listrik</option><option value="Internet">🌐 Internet</option><option value="Sewa">🏠 Sewa Tempat</option><option value="Gaji">👥 Gaji</option><option value="Lainnya">🏷️ Lainnya</option></select></div>
-                  <div><label className="font-bold text-slate-400 mb-1 block">Nominal (Rp) *</label><input type="number" required placeholder="Contoh: 150000" value={expenseForm.amount} onChange={(e) => setExpenseForm({...expenseForm, amount: e.target.value})} className={`w-full p-2.5 border rounded-xl font-black text-[#ff4b8b] outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : ''}`} /></div>
-                  <div><label className="font-bold text-slate-400 mb-1 block">Keterangan</label><input type="text" placeholder="Misal: Beli token listrik" value={expenseForm.note} onChange={(e) => setExpenseForm({...expenseForm, note: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
-                  <button type="submit" className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black text-xs shadow-md mt-1 cursor-pointer">Simpan Beban</button>
-                </form>
-              </div>
-            </div>
-          )}
-
-          {/* Modal Tahan Pesanan (Save Draft) */}
-          {showDraftSaveModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-              <div className={`rounded-3xl w-full max-w-sm p-6 space-y-4 border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
-                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Tahan Pesanan Saat Ini</h3><button onClick={() => setShowDraftSaveModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
-                <div className="space-y-3 pt-1">
-                  <div>
-                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Nama Pelanggan / Nomor Meja *</label>
-                    <input type="text" autoFocus placeholder="Misal: Bapak Budi / Meja 04" value={draftNameInput} onChange={(e) => setDraftNameInput(e.target.value)} className={`w-full p-3 border rounded-xl outline-none font-bold text-xs ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} />
-                  </div>
-                  <button onClick={saveDraft} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl text-xs shadow-md cursor-pointer">Simpan & Tahan Pesanan</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Modal Daftar Pesanan Tertahan (Draft List) */}
-          {showDraftListModal && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-              <div className={`rounded-3xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
-                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center"><h3 className="font-black text-sm flex items-center gap-1.5"><Icon name="folder" className="w-4 h-4 text-[#00d2d3]"/> Pesanan Tertahan (Draft)</h3><button onClick={() => setShowDraftListModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
-                <div className="p-4 flex-1 overflow-y-auto space-y-2.5 text-xs">
-                  {draftOrders.length === 0 ? (<p className="text-center py-8 text-slate-400">Belum ada pesanan yang ditahan.</p>) : (
-                    draftOrders.map(d => (
-                      <div key={d.id} className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
-                        <div>
-                          <p className="font-extrabold text-sm">{d.name}</p>
-                          <p className="text-[10px] text-slate-400 mt-0.5">{d.cart.length} macam barang • {d.date}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button onClick={() => { setDraftOrders(draftOrders.filter(item => item.id !== d.id)); showToast('Draft pesanan dihapus'); }} className="p-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl cursor-pointer"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
-                          <button onClick={() => loadDraft(d)} className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold cursor-pointer shadow-md">Buka</button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
+                )}
               </div>
             </div>
           )}
@@ -2959,32 +3307,69 @@
             </div>
           )}
 
-          {/* Modal Pelunasan Piutang Pelanggan */}
-          {paymentModalCustomer && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="rounded-3xl w-full max-w-sm bg-[#181b3b] border border-[#2a2f60] text-white p-5 space-y-3 shadow-2xl">
-                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Pelunasan Piutang Pelanggan</h3><button onClick={() => setPaymentModalCustomer(null)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
-                <form onSubmit={handlePayCustomerDebt} className="space-y-3 text-xs">
-                  <div><label className="text-slate-400 font-bold block mb-1">Pelanggan:</label><p className="p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-bold">{paymentModalCustomer.name}</p></div>
-                  <div><label className="text-slate-400 font-bold block mb-1">Sisa Piutang:</label><p className="p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-black text-[#ff8a3d]">{formatMoney(paymentModalCustomer.debt)}</p></div>
-                  <div><label className="text-slate-400 font-bold block mb-1">Nominal Dibayar (Rp):</label><input type="number" required placeholder="Nominal bayar" value={customerPayAmount} onChange={(e) => setCustomerPayAmount(e.target.value)} className="w-full p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-bold text-emerald-400 outline-none" /></div>
-                  <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs shadow-md cursor-pointer">Simpan Pembayaran</button>
-                </form>
+          {/* Modal Tahan Pesanan (Save Draft) */}
+          {showDraftSaveModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+              <div className={`rounded-3xl w-full max-w-sm p-6 space-y-4 border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
+                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Tahan Pesanan Saat Ini</h3><button onClick={() => setShowDraftSaveModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Nama Pelanggan / Nomor Meja *</label>
+                    <input type="text" autoFocus placeholder="Misal: Bapak Budi / Meja 04" value={draftNameInput} onChange={(e) => setDraftNameInput(e.target.value)} className={`w-full p-3 border rounded-xl outline-none font-bold text-xs ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : 'bg-slate-50'}`} />
+                  </div>
+                  <button onClick={saveDraft} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl text-xs shadow-md cursor-pointer">Simpan & Tahan Pesanan</button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* Modal Pelunasan Hutang Supplier */}
-          {paymentModalSupplier && (
-            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-              <div className="rounded-3xl w-full max-w-sm bg-[#181b3b] border border-[#2a2f60] text-white p-5 space-y-3 shadow-2xl">
-                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Pelunasan Hutang ke Supplier</h3><button onClick={() => setPaymentModalSupplier(null)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
-                <form onSubmit={handlePaySupplierDebt} className="space-y-3 text-xs">
-                  <div><label className="text-slate-400 font-bold block mb-1">Supplier:</label><p className="p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-bold">{paymentModalSupplier.name}</p></div>
-                  <div><label className="text-slate-400 font-bold block mb-1">Sisa Hutang Toko:</label><p className="p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-black text-[#ff8a3d]">{formatMoney(paymentModalSupplier.debt)}</p></div>
-                  <div><label className="text-slate-400 font-bold block mb-1">Nominal Dibayar (Rp):</label><input type="number" required placeholder="Nominal bayar" value={supplierPayAmount} onChange={(e) => setSupplierPayAmount(e.target.value)} className="w-full p-2.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl font-bold text-emerald-400 outline-none" /></div>
-                  <button type="submit" className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs shadow-md cursor-pointer">Simpan Pembayaran</button>
-                </form>
+          {/* Modal Daftar Pesanan Tertahan (Draft List) */}
+          {showDraftListModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+              <div className={`rounded-3xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
+                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center"><h3 className="font-black text-sm flex items-center gap-1.5"><Icon name="folder" className="w-4 h-4 text-[#00d2d3]"/> Pesanan Tertahan (Draft)</h3><button onClick={() => setShowDraftListModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className="p-4 flex-1 overflow-y-auto space-y-2.5 text-xs">
+                  {draftOrders.length === 0 ? (<p className="text-center py-8 text-slate-400">Belum ada pesanan yang ditahan.</p>) : (
+                    draftOrders.map(d => (
+                      <div key={d.id} className={`p-3.5 rounded-2xl border flex items-center justify-between gap-3 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                        <div>
+                          <p className="font-extrabold text-sm">{d.name}</p>
+                          <p className="text-[10px] text-slate-400 mt-0.5">{d.cart.length} macam barang • {d.date}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <button onClick={() => { setDraftOrders(draftOrders.filter(item => item.id !== d.id)); showToast('Draft pesanan dihapus'); }} className="p-2 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl cursor-pointer"><Icon name="trash-2" className="w-3.5 h-3.5"/></button>
+                          <button onClick={() => loadDraft(d)} className="px-3 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-xl font-bold cursor-pointer shadow-md">Buka</button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Diskon Total Transaksi */}
+          {showDiscountModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
+              <div className={`rounded-3xl w-full max-w-xs p-5 space-y-3 border shadow-2xl ${theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'}`}>
+                <div className="flex justify-between items-center"><h3 className="font-black text-sm">Beri Diskon Total</h3><button onClick={() => setShowDiscountModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Persentase Diskon (%)</label>
+                    <input type="number" autoFocus min="0" max="100" placeholder="0 - 100" value={discountInput} onChange={(e) => setDiscountInput(e.target.value)} className={`w-full p-3 border rounded-xl text-center text-xl font-black outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-[#00d2d3]' : 'bg-slate-50'}`} />
+                  </div>
+                  <button onClick={() => {
+                    const val = parseInt(discountInput, 10);
+                    if (val >= 0 && val <= 100) {
+                      setDiscount(val);
+                      setShowDiscountModal(false);
+                      setDiscountInput('');
+                      showToast(`Diskon ${val}% diterapkan pada nota`);
+                    } else {
+                      showToast('Masukkan angka diskon 0 - 100%', 'error');
+                    }
+                  }} className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl text-xs shadow-md cursor-pointer">Terapkan Diskon</button>
+                </div>
               </div>
             </div>
           )}
@@ -3011,6 +3396,173 @@
                 <form onSubmit={handleAuthSubmit} className="space-y-3 pt-2">
                   <input type="password" required autoFocus placeholder="Password role..." value={authModal.password} onChange={(e) => setAuthModal({...authModal, password: e.target.value})} className={`w-full p-3.5 border rounded-2xl text-center text-lg font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
                   <button type="submit" className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-black rounded-2xl text-xs shadow-md cursor-pointer">Masuk</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Nota Struk */}
+          {viewingTransaction && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+              }`}>
+                <div className={`p-4 border-b flex justify-between items-center ${theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                  <h3 className="font-black text-sm">Nota Transaksi #{viewingTransaction.id}</h3>
+                  <button onClick={() => setViewingTransaction(null)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button>
+                </div>
+                <div className="p-5 flex-1 overflow-y-auto space-y-3 text-xs">
+                  <div className={`text-center pb-2 border-b border-dashed ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-300'}`}>
+                    <h4 className="font-black text-sm uppercase">{storeSettings.name}</h4>
+                    <p className="text-slate-400 text-[10px]">{storeSettings.address}</p>
+                    <p className="text-[10px] text-slate-400 mt-1">{viewingTransaction.date} • Kasir: {viewingTransaction.cashier}</p>
+                  </div>
+                  <div className={`space-y-1.5 border-b border-dashed pb-2 ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-300'}`}>
+                    {(viewingTransaction.items || []).map((i, idx) => (
+                      <div key={idx} className="flex justify-between"><span>{i.product.name} ({i.qty}x)</span><span className="font-bold">{formatMoney((i.product.price - (Number(i.discountRp)||0)) * i.qty)}</span></div>
+                    ))}
+                  </div>
+                  <div className="space-y-1 pt-1 font-semibold">
+                    <div className="flex justify-between"><span>Total:</span><span className="font-black text-sm text-[#00d2d3]">{formatMoney(viewingTransaction.total)}</span></div>
+                    <div className="flex justify-between text-[11px] text-slate-400"><span>Bayar ({viewingTransaction.paymentMethod}):</span><span>{formatMoney(viewingTransaction.cash)}</span></div>
+                    {viewingTransaction.paymentMethod === 'Cash' && <div className="flex justify-between text-[11px] text-emerald-400"><span>Kembalian:</span><span>{formatMoney(viewingTransaction.change)}</span></div>}
+                  </div>
+                </div>
+                <div className={`p-3 border-t grid grid-cols-3 gap-2 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                  <button onClick={() => {
+                    let text = `*NOTA - ${storeSettings.name}*\nNo: ${viewingTransaction.id}\nTotal: ${formatMoney(viewingTransaction.total)}\n\nTerima kasih!`;
+                    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+                  }} className="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md cursor-pointer"><Icon name="message-circle" className="w-3.5 h-3.5"/> WA</button>
+                  <button onClick={() => window.print()} className="py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md cursor-pointer"><Icon name="printer" className="w-3.5 h-3.5"/> Cetak</button>
+                  {currentUser.role === 'owner' ? (
+                    <button onClick={() => {
+                      const trxToDel = viewingTransaction;
+                      setViewingTransaction(null);
+                      setDeleteTransactionModal({ show: true, transaction: trxToDel, restoreStock: true });
+                    }} className="py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1 shadow-md cursor-pointer"><Icon name="trash-2" className="w-3.5 h-3.5"/> Hapus</button>
+                  ) : (
+                    <div className="flex items-center justify-center text-[10px] text-slate-400 font-bold">Akses Kasir</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Konfirmasi Hapus Transaksi (Owner Only) */}
+          {deleteTransactionModal.show && deleteTransactionModal.transaction && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className={`rounded-3xl w-full max-w-sm p-6 space-y-4 border shadow-2xl animate-in zoom-in duration-200 ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+              }`}>
+                <div className="w-12 h-12 bg-rose-500/20 text-rose-400 rounded-2xl flex items-center justify-center mx-auto border border-rose-500/30">
+                  <Icon name="trash-2" className="w-6 h-6" />
+                </div>
+                <div className="text-center space-y-1">
+                  <h3 className="font-black text-base">Hapus Riwayat Nota #{deleteTransactionModal.transaction.id}?</h3>
+                  <p className="text-xs text-slate-400">Total: <span className="text-[#00d2d3] font-bold">{formatMoney(deleteTransactionModal.transaction.total)}</span></p>
+                </div>
+
+                <div className={`p-3 rounded-2xl border text-xs space-y-2 ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : 'bg-slate-50'}`}>
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      checked={deleteTransactionModal.restoreStock} 
+                      onChange={(e) => setDeleteTransactionModal({ ...deleteTransactionModal, restoreStock: e.target.checked })} 
+                      className="rounded accent-indigo-600 w-4 h-4"
+                    />
+                    <span className="font-semibold text-slate-300">Kembalikan stok barang yang terjual ke inventaris</span>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 pt-2">
+                  <button 
+                    onClick={() => setDeleteTransactionModal({ show: false, transaction: null, restoreStock: true })} 
+                    className={`py-3 rounded-2xl font-bold text-xs border cursor-pointer ${
+                      theme === 'dark' ? 'bg-[#21254d] border-[#2a2f60] text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    onClick={() => handleDeleteTransaction(deleteTransactionModal.transaction, deleteTransactionModal.restoreStock)} 
+                    className="py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-xs shadow-lg shadow-rose-500/20 cursor-pointer"
+                  >
+                    Ya, Hapus Nota
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Tambah/Edit Produk */}
+          {isProductModalOpen && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+              }`}>
+                <div className={`p-4 border-b flex justify-between items-center ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}><h3 className="font-black text-sm">{editingProduct ? 'Edit Barang' : 'Tambah Barang Baru'}</h3><button onClick={() => setIsProductModalOpen(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <form onSubmit={handleSaveProduct} className="p-4 overflow-y-auto space-y-3 text-xs">
+                  <div>
+                    <label className="font-bold text-slate-400 mb-1 block">Kode Barcode / SKU</label>
+                    <div className="flex gap-2">
+                      <input type="text" placeholder="Scan barcode / ketik SKU" value={productForm.sku} onChange={(e) => setProductForm({...productForm, sku: e.target.value})} className={`flex-1 px-3 py-2.5 border rounded-xl font-mono uppercase outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
+                      {isMobileDevice && (
+                        <button type="button" onClick={() => openScanner('product_form')} className="px-3.5 py-2 bg-gradient-to-r from-[#00d2d3] to-[#6366f1] text-white font-bold rounded-xl flex items-center gap-1 shrink-0 cursor-pointer"><Icon name="camera" className="w-4 h-4"/><span>Scan</span></button>
+                      )}
+                    </div>
+                  </div>
+                  <div><label className="font-bold text-slate-400 mb-1 block">Nama Produk *</label><input type="text" required placeholder="Contoh: Es Teh Manis" value={productForm.name} onChange={(e) => setProductForm({...productForm, name: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="font-bold text-slate-400 mb-1 block">Kategori</label><input type="text" required value={productForm.category} onChange={(e) => setProductForm({...productForm, category: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
+                    <div><label className="font-bold text-slate-400 mb-1 block">Stok Awal</label><input type="number" required value={productForm.stock} onChange={(e) => setProductForm({...productForm, stock: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="font-bold text-slate-400 mb-1 block">Harga Jual (Rp) *</label><input type="number" required value={productForm.price} onChange={(e) => setProductForm({...productForm, price: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl font-black text-[#00d2d3] outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : ''}`} /></div>
+                    <div><label className="font-bold text-slate-400 mb-1 block">Harga Modal (Rp)</label><input type="number" required value={productForm.costPrice} onChange={(e) => setProductForm({...productForm, costPrice: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
+                  </div>
+                  <button type="submit" disabled={isSaving} className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black text-xs shadow-lg mt-2 cursor-pointer">{isSaving ? 'Menyimpan...' : 'Simpan Barang'}</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Restock */}
+          {showRestockModal && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-lg max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white border-slate-200'
+              }`}>
+                <div className="p-4 border-b border-[#2a2f60] flex justify-between items-center bg-emerald-500/20 text-emerald-400"><h3 className="font-black text-sm flex items-center gap-1.5"><Icon name="plus" className="w-4 h-4"/> Stok Masuk & Hutang</h3><button onClick={() => setShowRestockModal(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <form onSubmit={handleSaveRestock} className="p-4 overflow-y-auto space-y-3 text-xs">
+                  <div><label className="font-bold text-slate-400 mb-1 block">Nama Supplier *</label><input type="text" required placeholder="Contoh: Toko Grosir Jaya" value={restockForm.supplier} onChange={(e) => setRestockForm({...restockForm, supplier: e.target.value})} className={`w-full px-3 py-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
+                  <div className="space-y-2">
+                    <label className="font-bold text-slate-400 block">Daftar Barang Masuk:</label>
+                    {restockForm.items.map((it, idx) => (
+                      <div key={idx} className="flex gap-2 items-center">
+                        <select required value={it.productId} onChange={(e) => updateDynamicList(restockForm, setRestockForm, idx, 'productId', e.target.value)} className={`flex-1 p-2.5 border rounded-xl text-xs outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`}><option value="">-- Pilih Barang --</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
+                        <input type="number" required min="1" placeholder="Qty" value={it.qty} onChange={(e) => updateDynamicList(restockForm, setRestockForm, idx, 'qty', e.target.value)} className={`w-16 p-2.5 border rounded-xl text-center text-xs font-bold outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} />
+                      </div>
+                    ))}
+                    <button type="button" onClick={() => addRowDynamicList(restockForm, setRestockForm)} className="text-[11px] font-bold text-[#00d2d3] cursor-pointer">+ Tambah Baris</button>
+                  </div>
+                  <button type="submit" className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-black text-xs shadow-md mt-2 cursor-pointer">Simpan Stok Masuk</button>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Pengeluaran */}
+          {isExpenseModalOpen && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
+              <div className={`rounded-t-3xl sm:rounded-3xl w-full max-w-sm max-h-[90vh] flex flex-col overflow-hidden border shadow-2xl ${
+                theme === 'dark' ? 'bg-[#181b3b] border-[#2a2f60] text-white' : 'bg-white'
+              }`}>
+                <div className={`p-4 border-b flex justify-between items-center ${theme === 'dark' ? 'border-[#2a2f60]' : 'border-slate-100'}`}><h3 className="font-black text-sm">Catat Pengeluaran</h3><button onClick={() => setIsExpenseModalOpen(false)} className="cursor-pointer"><Icon name="x" className="w-5 h-5 text-slate-400"/></button></div>
+                <form onSubmit={handleSaveExpense} className="p-4 space-y-3 text-xs">
+                  <div><label className="font-bold text-slate-400 mb-1 block">Kategori</label><select value={expenseForm.category} onChange={(e) => setExpenseForm({...expenseForm, category: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`}><option value="Listrik">⚡ Listrik</option><option value="Internet">🌐 Internet</option><option value="Sewa">🏠 Sewa Tempat</option><option value="Gaji">👥 Gaji</option><option value="Lainnya">🏷️ Lainnya</option></select></div>
+                  <div><label className="font-bold text-slate-400 mb-1 block">Nominal (Rp) *</label><input type="number" required placeholder="Contoh: 150000" value={expenseForm.amount} onChange={(e) => setExpenseForm({...expenseForm, amount: e.target.value})} className={`w-full p-2.5 border rounded-xl font-black text-[#ff4b8b] outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60]' : ''}`} /></div>
+                  <div><label className="font-bold text-slate-400 mb-1 block">Keterangan</label><input type="text" placeholder="Misal: Beli token listrik" value={expenseForm.note} onChange={(e) => setExpenseForm({...expenseForm, note: e.target.value})} className={`w-full p-2.5 border rounded-xl outline-none ${theme === 'dark' ? 'bg-[#0f1228] border-[#2a2f60] text-white' : ''}`} /></div>
+                  <button type="submit" className="w-full py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-2xl font-black text-xs shadow-md mt-1 cursor-pointer">Simpan Beban</button>
                 </form>
               </div>
             </div>
