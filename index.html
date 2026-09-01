@@ -112,9 +112,15 @@
     // KUNCI RAHASIA MASTER LISENSI (Hanya diketahui sistem aplikasi & generator lisensi)
     const MASTER_LICENSE_SECRET = "POSPRO_SECRET_KEY_DEV_9824X";
 
-    // Hash Helper untuk memvalidasi Lisensi Key Anti-Manipulasi
-    const generateLicenseChecksum = (payload) => {
-      const combined = `${payload}::${MASTER_LICENSE_SECRET}`;
+    // Helper normalisasi nama toko agar toleran terhadap spasi dan huruf besar/kecil
+    const normalizeStoreName = (name) => {
+      return String(name || '').trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
+    // Hash Helper untuk memvalidasi Lisensi Key yang TERKUNCI pada Nama Toko
+    const generateLicenseChecksum = (storeName, durationCode, serial) => {
+      const normName = normalizeStoreName(storeName);
+      const combined = `${normName}::${durationCode}::${serial}::${MASTER_LICENSE_SECRET}`;
       let hash = 0;
       for (let i = 0; i < combined.length; i++) {
         const char = combined.charCodeAt(i);
@@ -124,11 +130,14 @@
       return Math.abs(hash).toString(36).toUpperCase().padStart(4, '0').slice(-4);
     };
 
-    // Fungsi Validasi Kode Lisensi
+    // Fungsi Validasi Kode Lisensi Terikat Nama Toko
     // Format: POS-[DURASI]-[SERIAL_ACAK]-[CHECKSUM]
-    // Contoh: POS-30D-A8B9C-7F2A atau POS-LIFE-K89Q2-9P1M
-    const verifyLicenseKey = (rawKey) => {
+    const verifyLicenseKey = (rawKey, storeName) => {
+      if (!storeName || !storeName.trim()) {
+        return { valid: false, message: 'Nama Pemilik / Toko wajib diisi untuk verifikasi lisensi!' };
+      }
       if (!rawKey) return { valid: false, message: 'Kode lisensi tidak boleh kosong.' };
+      
       const cleanKey = rawKey.trim().toUpperCase();
       const parts = cleanKey.split('-');
       
@@ -137,10 +146,13 @@
       }
 
       const [prefix, durationCode, serial, checksum] = parts;
-      const expectedChecksum = generateLicenseChecksum(`${durationCode}-${serial}`);
+      const expectedChecksum = generateLicenseChecksum(storeName, durationCode, serial);
 
       if (checksum !== expectedChecksum) {
-        return { valid: false, message: 'Kode Lisensi tidak valid atau palsu!' };
+        return { 
+          valid: false, 
+          message: `Kode Lisensi TIDAK COCOK untuk nama toko "${storeName.trim()}". Kode ini terkunci untuk toko lain atau tidak valid!` 
+        };
       }
 
       let days = 0;
@@ -163,7 +175,8 @@
         key: cleanKey,
         durationDays: days,
         durationLabel: label,
-        serial: serial
+        serial: serial,
+        storeName: storeName.trim()
       };
     };
 
@@ -465,7 +478,7 @@
       const handleActivateLicense = (e) => {
         e.preventDefault();
         setLicenseError('');
-        const verified = verifyLicenseKey(licenseInputKey);
+        const verified = verifyLicenseKey(licenseInputKey, licenseOwnerName);
 
         if (!verified.valid) {
           setLicenseError(verified.message);
@@ -480,7 +493,7 @@
           expiresAt = expDate.toISOString();
         }
 
-        const owner = licenseOwnerName.trim() || 'Pemilik Toko';
+        const owner = verified.storeName;
         const newLicense = {
           key: verified.key,
           ownerName: owner,
@@ -505,7 +518,7 @@
         setLicenseInputKey('');
         setLicenseOwnerName('');
         setShowExtendLicenseModal(false);
-        showToast(`✅ Lisensi Berhasil Diaktifkan! Durasi: ${verified.durationLabel}`);
+        showToast(`✅ Lisensi Berhasil Diaktifkan untuk "${owner}"! Durasi: ${verified.durationLabel}`);
       };
 
       const handleDemoLicenseActivate = () => {
@@ -1480,7 +1493,7 @@
                 <div>
                   <label className="text-slate-300 font-bold mb-1.5 block flex items-center gap-1.5">
                     <Icon name="user" className="w-3.5 h-3.5 text-[#00d2d3]" />
-                    <span>Nama Pemilik / Nama Toko:</span>
+                    <span>Nama Toko / Pemilik (Terkunci ke Lisensi):</span>
                   </label>
                   <input 
                     type="text" 
@@ -1490,6 +1503,9 @@
                     onChange={(e) => setLicenseOwnerName(e.target.value)} 
                     className="w-full p-3 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-white outline-none focus:border-[#00d2d3] font-medium"
                   />
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    *Harus sama persis dengan nama toko saat lisensi dibuat.
+                  </p>
                 </div>
 
                 <div>
@@ -1506,7 +1522,7 @@
                     className="w-full p-3.5 bg-[#0f1228] border border-[#2a2f60] rounded-xl text-[#00d2d3] outline-none focus:border-[#00d2d3] font-mono font-bold text-center tracking-wider text-sm sm:text-base"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">
-                    Gunakan Kode Lisensi yang sama di PC & HP agar data kasir langsung terhubung & sinkron otomatis.
+                    Kode lisensi ini terkunci khusus untuk nama toko di atas.
                   </p>
                 </div>
 
